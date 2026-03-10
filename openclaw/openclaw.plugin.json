@@ -1,0 +1,107 @@
+{
+  "id": "bitrouter",
+  "name": "BitRouter",
+  "version": "0.1.0",
+  "description": "Route LLM requests through BitRouter — a local multi-provider proxy with failover, load balancing, and unified API key management.",
+  "entry": "dist/index.js",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "port": {
+        "type": "number",
+        "default": 8787,
+        "description": "Port for BitRouter to listen on."
+      },
+      "host": {
+        "type": "string",
+        "default": "127.0.0.1",
+        "description": "Host address for BitRouter to bind to."
+      },
+      "autoStart": {
+        "type": "boolean",
+        "default": true,
+        "description": "Automatically start BitRouter daemon when OpenClaw starts."
+      },
+      "healthCheckIntervalMs": {
+        "type": "number",
+        "default": 30000,
+        "description": "Interval in ms between health check polls."
+      },
+      "interceptAllModels": {
+        "type": "boolean",
+        "default": false,
+        "description": "When true, route ALL model requests through BitRouter. When false (default), only intercept models that BitRouter has configured routes for."
+      },
+      "providers": {
+        "type": "object",
+        "description": "Provider configurations. Keys are provider names (e.g. 'openai', 'anthropic'). Values configure API keys, base URLs, and inheritance.",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "apiKey": {
+              "type": "string",
+              "description": "API key or env var reference like '${OPENAI_API_KEY}'."
+            },
+            "apiBase": {
+              "type": "string",
+              "description": "Custom API base URL."
+            },
+            "envPrefix": {
+              "type": "string",
+              "description": "Env var prefix for auto-loading keys (e.g. 'OPENAI')."
+            },
+            "derives": {
+              "type": "string",
+              "description": "Inherit defaults from a built-in provider (e.g. 'openai')."
+            }
+          }
+        }
+      },
+      "models": {
+        "type": "object",
+        "description": "Model routing definitions. Keys are virtual model names. Values define routing strategy and endpoint lists.",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "strategy": {
+              "type": "string",
+              "enum": ["priority", "load_balance"],
+              "default": "priority",
+              "description": "'priority' tries endpoints in order with failover. 'load_balance' distributes via round-robin."
+            },
+            "endpoints": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "description": "Provider name (must be configured in providers section or a built-in)."
+                  },
+                  "modelId": {
+                    "type": "string",
+                    "description": "Upstream model ID to send to this provider."
+                  },
+                  "apiKey": {
+                    "type": "string",
+                    "description": "Optional per-endpoint API key override."
+                  },
+                  "apiBase": {
+                    "type": "string",
+                    "description": "Optional per-endpoint API base URL override."
+                  }
+                },
+                "required": ["provider", "modelId"]
+              }
+            }
+          },
+          "required": ["endpoints"]
+        }
+      }
+    }
+  },
+  "uiHints": {
+    "icon": "router",
+    "category": "infrastructure"
+  }
+}
