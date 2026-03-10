@@ -15,6 +15,9 @@
  */
 
 import { spawn, execSync, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type {
   BitrouterPluginConfig,
@@ -32,14 +35,36 @@ import { refreshRoutes } from "./routing.js";
  * Find the bitrouter binary.
  *
  * Resolution order:
- * 1. @bitrouter/cli npm package (installed via cargo-dist, provides
+ * 1. BITROUTER_BIN environment variable (explicit override)
+ * 2. Sibling local build (../bitrouter/target/{release,debug}/bitrouter
+ *    relative to the package root — for local development)
+ * 3. @bitrouter/cli npm package (installed via cargo-dist, provides
  *    platform-specific binaries like esbuild's approach)
- * 2. `bitrouter` on $PATH (for users who installed via cargo install)
+ * 4. `bitrouter` on $PATH (for users who installed via cargo install)
  *
- * Throws a descriptive error if neither is available.
+ * Throws a descriptive error if none is available.
  */
 function resolveBinaryPath(): string {
-  // Try 1: npm package (@bitrouter/cli published by cargo-dist).
+  // Try 1: explicit env var override.
+  const envBin = process.env.BITROUTER_BIN;
+  if (envBin) return envBin;
+
+  // Try 2: sibling local build (for local development).
+  // Package root is one level up from dist/ (where __dirname points).
+  const packageRoot = resolve(__dirname, "..");
+  for (const profile of ["release", "debug"]) {
+    const candidate = resolve(
+      packageRoot,
+      "..",
+      "bitrouter",
+      "target",
+      profile,
+      "bitrouter"
+    );
+    if (existsSync(candidate)) return candidate;
+  }
+
+  // Try 3: npm package (@bitrouter/cli published by cargo-dist).
   try {
     // The package exports the path to the platform-specific binary.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -49,7 +74,7 @@ function resolveBinaryPath(): string {
     // Package not installed or doesn't export getBinaryPath — fall through.
   }
 
-  // Try 2: binary on PATH.
+  // Try 4: binary on PATH.
   try {
     const result = execSync("which bitrouter", {
       encoding: "utf-8",
@@ -63,11 +88,12 @@ function resolveBinaryPath(): string {
   throw new Error(
     "BitRouter binary not found.\n" +
       "Install it with one of:\n" +
-      '  npm install @bitrouter/cli          # recommended (via cargo-dist)\n' +
+      "  cargo build (in sibling ../bitrouter dir)  # local development\n" +
+      "  npm install @bitrouter/cli          # recommended (via cargo-dist)\n" +
       "  cargo install bitrouter             # from source\n" +
       "  cargo binstall bitrouter            # pre-built binary\n" +
       "\n" +
-      "Or ensure `bitrouter` is on your $PATH."
+      "Or set BITROUTER_BIN=/path/to/bitrouter or ensure `bitrouter` is on your $PATH."
   );
 }
 
