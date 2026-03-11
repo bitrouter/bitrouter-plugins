@@ -27,6 +27,9 @@ import { resolveHomeDir } from "./config.js";
 import { registerBitrouterService } from "./service.js";
 import { registerBitrouterProvider } from "./provider.js";
 import { registerModelInterceptor } from "./routing.js";
+import { registerAgentTools } from "./tools.js";
+import { registerFeedbackRoute } from "./feedback.js";
+import { registerGatewayMethods } from "./gateway.js";
 
 /**
  * Plugin activation — called by OpenClaw when the plugin is loaded.
@@ -47,6 +50,8 @@ export function activate(api: OpenClawPluginApi): void {
     knownRoutes: [],
     healthCheckTimer: null,
     homeDir: resolveHomeDir(api),
+    dynamicRoutes: new Map(),
+    metrics: null,
   };
 
   // Register the daemon service (spawn/stop bitrouter).
@@ -69,6 +74,27 @@ export function activate(api: OpenClawPluginApi): void {
     registerModelInterceptor(api, config, state);
   } catch (err) {
     api.log.error(`Failed to register model interceptor: ${err}`);
+  }
+
+  // Register agent tools for runtime route management.
+  try {
+    registerAgentTools(api, config, state);
+  } catch (err) {
+    api.log.error(`Failed to register agent tools: ${err}`);
+  }
+
+  // Register HTTP feedback endpoint.
+  try {
+    registerFeedbackRoute(api);
+  } catch (err) {
+    api.log.error(`Failed to register feedback route: ${err}`);
+  }
+
+  // Register gateway RPC methods.
+  try {
+    registerGatewayMethods(api, state);
+  } catch (err) {
+    api.log.error(`Failed to register gateway methods: ${err}`);
   }
 
   api.log.info(

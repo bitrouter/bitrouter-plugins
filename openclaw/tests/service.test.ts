@@ -53,6 +53,8 @@ function createMockState(): BitrouterState {
     knownRoutes: [],
     healthCheckTimer: null,
     homeDir: "/tmp/bitrouter-test",
+    dynamicRoutes: new Map(),
+    metrics: null,
   };
 }
 
@@ -60,6 +62,9 @@ function createMockApi(): OpenClawPluginApi {
   return {
     registerService: vi.fn(),
     registerProvider: vi.fn(),
+    registerTool: vi.fn(),
+    registerHttpRoute: vi.fn(),
+    registerGatewayMethod: vi.fn(),
     on: vi.fn(),
     getConfig: vi.fn(() => ({})),
     getDataDir: vi.fn(() => "/tmp"),

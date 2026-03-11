@@ -53,6 +53,15 @@ function createMockApi(config: BitrouterPluginConfig = {}) {
     registerProvider(opts) {
       registrations.providers.push(opts);
     },
+    registerTool() {
+      // no-op for integration tests
+    },
+    registerHttpRoute() {
+      // no-op for integration tests
+    },
+    registerGatewayMethod() {
+      // no-op for integration tests
+    },
     on(event, handler) {
       registrations.hooks.push({ event, handler });
     },
@@ -100,6 +109,8 @@ describe("Integration: plugin against live BitRouter", () => {
         knownRoutes: [],
         healthCheckTimer: null,
         homeDir: "/tmp/test",
+        dynamicRoutes: new Map(),
+        metrics: null,
       };
 
       const result = await checkHealth(state);
@@ -116,6 +127,8 @@ describe("Integration: plugin against live BitRouter", () => {
         knownRoutes: [],
         healthCheckTimer: null,
         homeDir: "/tmp/test",
+        dynamicRoutes: new Map(),
+        metrics: null,
       };
 
       const result = await waitForReady(state);
@@ -137,6 +150,8 @@ describe("Integration: plugin against live BitRouter", () => {
         knownRoutes: [],
         healthCheckTimer: null,
         homeDir: "/tmp/test",
+        dynamicRoutes: new Map(),
+        metrics: null,
       };
 
       await refreshRoutes(state, api);
@@ -166,6 +181,8 @@ describe("Integration: plugin against live BitRouter", () => {
         knownRoutes: [{ model: "default", provider: "openrouter", protocol: "openai" }],
         healthCheckTimer: null,
         homeDir: "/tmp/test",
+        dynamicRoutes: new Map(),
+        metrics: null,
       };
 
       // Register the hook
@@ -215,6 +232,8 @@ describe("Integration: plugin against live BitRouter", () => {
         knownRoutes: [{ model: "default", provider: "openrouter", protocol: "openai" }],
         healthCheckTimer: null,
         homeDir: "/tmp/test",
+        dynamicRoutes: new Map(),
+        metrics: null,
       };
 
       registerModelInterceptor(api, config, state);
@@ -243,6 +262,8 @@ describe("Integration: plugin against live BitRouter", () => {
         knownRoutes: [],
         healthCheckTimer: null,
         homeDir: "/tmp/test",
+        dynamicRoutes: new Map(),
+        metrics: null,
       };
 
       registerModelInterceptor(api, config, state);

@@ -14,6 +14,7 @@ import type {
 } from "./types.js";
 import { DEFAULTS } from "./types.js";
 import { refreshRoutes } from "./routing.js";
+import { refreshMetrics } from "./metrics.js";
 
 // ── Single health check ──────────────────────────────────────────────
 
@@ -69,6 +70,11 @@ export function startHealthCheck(
     }
 
     state.healthy = isHealthy;
+
+    // Refresh metrics on every healthy tick (lightweight).
+    if (isHealthy) {
+      await refreshMetrics(state, api, config);
+    }
 
     // Periodically refresh routes even when continuously healthy,
     // in case the config was reloaded on the BitRouter side.

@@ -18,6 +18,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "@sinclair/typebox": "^0.32.0",
     "yaml": "^2.4.0"
   },
 "devDependencies": {

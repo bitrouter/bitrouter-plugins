@@ -20,6 +20,7 @@ export interface BitrouterPluginConfig {
   interceptAllModels?: boolean;
   providers?: Record<string, ProviderEntry>;
   models?: Record<string, ModelEntry>;
+  routing?: RoutingConfig;
 }
 
 /** A single provider entry in the plugin config (camelCase, TS-side). */
@@ -61,6 +62,82 @@ export interface HealthStatus {
   status: "ok" | "error";
 }
 
+// ── Metrics types ───────────────────────────────────────────────────
+
+/** Per-endpoint performance metrics. */
+export interface EndpointMetrics {
+  total_requests: number;
+  total_errors: number;
+  error_rate: number;
+  latency_p50_ms: number;
+  latency_p99_ms: number;
+}
+
+/** Per-route metrics from GET /v1/metrics. */
+export interface RouteMetrics {
+  model: string;
+  total_requests: number;
+  total_errors: number;
+  error_rate: number;
+  latency_p50_ms: number;
+  latency_p99_ms: number;
+  by_endpoint: Record<string, EndpointMetrics>;
+}
+
+/** Full response from GET /v1/metrics. */
+export interface MetricsResponse {
+  routes: Record<string, RouteMetrics>;
+}
+
+// ── Feedback type ───────────────────────────────────────────────────
+
+/** A feedback signal from POST /bitrouter/feedback. */
+export interface FeedbackSignal {
+  route: string;
+  outcome: "success" | "failure";
+  taskType?: string;
+  timestamp: number;
+}
+
+// ── Routing config ──────────────────────────────────────────────────
+
+/** Metrics-informed routing configuration. */
+export interface RoutingConfig {
+  errorRateThreshold?: number;
+  minRequestsForScoring?: number;
+  preferMetrics?: boolean;
+  /**
+   * TEMPORARY: Generate mock metrics from known routes when
+   * the BitRouter binary doesn't support GET /v1/metrics yet.
+   * Remove once bitrouter/bitrouter#70 ships.
+   */
+  mockMetrics?: boolean;
+}
+
+// ── Tool result type ─────────────────────────────────────────────────
+
+/** Standard tool result returned from agent tool execute functions. */
+export interface ToolResult {
+  content: Array<{ type: "text"; text: string }>;
+  isError?: boolean;
+}
+
+// ── Dynamic route type ──────────────────────────────────────────────
+
+/** A runtime-created route managed by agent tools (not from BitRouter config). */
+export interface DynamicRoute {
+  /** The virtual model name this route handles. */
+  model: string;
+  /** Routing strategy: "priority" (always first) or "load_balance" (round-robin). */
+  strategy: "priority" | "load_balance";
+  /** Ordered list of upstream endpoints. */
+  endpoints: EndpointEntry[];
+  /** Round-robin counter for load_balance strategy. */
+  rrCounter: number;
+  /** ISO timestamp of when this route was created/updated. */
+  createdAt: string;
+}
+
 // ── Plugin runtime state ─────────────────────────────────────────────
 
 /**
@@ -83,6 +160,10 @@ export interface BitrouterState {
   healthCheckTimer: ReturnType<typeof setInterval> | null;
   /** Absolute path to the generated BitRouter home directory. */
   homeDir: string;
+  /** Agent-created dynamic routes, keyed by model name. */
+  dynamicRoutes: Map<string, DynamicRoute>;
+  /** Cached metrics from GET /v1/metrics (null if unavailable). */
+  metrics: MetricsResponse | null;
 }
 
 // ── OpenClaw Plugin API type stubs ───────────────────────────────────
@@ -124,6 +205,36 @@ export interface OpenClawPluginApi {
 
   /** Get the plugin's data directory (persistent across restarts). */
   getDataDir(): string;
+
+  /** Register an agent-callable tool. */
+  registerTool(
+    definition: {
+      name: string;
+      description: string;
+      parameters: unknown;
+      execute: (
+        id: string,
+        params: Record<string, unknown>
+      ) => Promise<ToolResult>;
+    },
+    opts?: { optional?: boolean }
+  ): void;
+
+  /** Register an HTTP route on the OpenClaw gateway. */
+  registerHttpRoute(opts: {
+    method: "GET" | "POST" | "PUT" | "DELETE";
+    path: string;
+    handler: (req: {
+      body: unknown;
+      query: Record<string, string>;
+    }) => Promise<{ status: number; body: unknown }>;
+  }): void;
+
+  /** Register an RPC method on the OpenClaw gateway. */
+  registerGatewayMethod(
+    name: string,
+    handler: () => Promise<unknown>
+  ): void;
 
   /** Structured logger scoped to this plugin. */
   log: {

@@ -25,6 +25,7 @@ import { DEFAULTS } from "./types.js";
 import { writeConfigToDir, resolveHomeDir } from "./config.js";
 import { startHealthCheck, stopHealthCheck, waitForReady } from "./health.js";
 import { refreshRoutes } from "./routing.js";
+import { refreshMetrics } from "./metrics.js";
 import { resolveBinaryPath } from "./binary.js";
 
 // ── Service registration ─────────────────────────────────────────────
@@ -114,8 +115,9 @@ export function registerBitrouterService(
         state.healthy = true;
         api.log.info("BitRouter is ready");
 
-        // Load the initial routing table.
+        // Load the initial routing table and metrics.
         await refreshRoutes(state, api);
+        await refreshMetrics(state, api, config);
       }
 
       // 5. Start periodic health checks.
