@@ -6,7 +6,7 @@
  *
  * The service:
  * 1. Generates bitrouter.yaml from plugin config (via config.ts)
- * 2. Resolves the bitrouter binary (via @bitrouter/cli npm package or PATH)
+ * 2. Resolves the bitrouter binary (auto-downloads from GitHub releases if needed)
  * 3. Spawns `bitrouter --home-dir <dir> serve` as a child process
  * 4. Waits for the health endpoint to respond
  * 5. Starts the periodic health check loop
@@ -14,88 +14,22 @@
  * On stop, sends SIGTERM → waits up to 10s → SIGKILL as fallback.
  */
 
-import { spawn, execSync, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { spawn, type ChildProcess } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 import type {
   BitrouterPluginConfig,
   BitrouterState,
   OpenClawPluginApi,
+  OpenClawPluginServiceContext,
 } from "./types.js";
 import { DEFAULTS } from "./types.js";
-import { writeConfigToDir, resolveHomeDir } from "./config.js";
+import { writeConfigToDir, resolveHomeDir, PROVIDER_API_BASES, toEnvVarKey, parseEnvFile } from "./config.js";
 import { startHealthCheck, stopHealthCheck, waitForReady } from "./health.js";
 import { refreshRoutes } from "./routing.js";
-
-// ── Binary resolution ────────────────────────────────────────────────
-
-/**
- * Find the bitrouter binary.
- *
- * Resolution order:
- * 1. BITROUTER_BIN environment variable (explicit override)
- * 2. Sibling local build (../bitrouter/target/{release,debug}/bitrouter
- *    relative to the package root — for local development)
- * 3. @bitrouter/cli npm package (installed via cargo-dist, provides
- *    platform-specific binaries like esbuild's approach)
- * 4. `bitrouter` on $PATH (for users who installed via cargo install)
- *
- * Throws a descriptive error if none is available.
- */
-function resolveBinaryPath(): string {
-  // Try 1: explicit env var override.
-  const envBin = process.env.BITROUTER_BIN;
-  if (envBin) return envBin;
-
-  // Try 2: sibling local build (for local development).
-  // Package root is one level up from dist/ (where __dirname points).
-  const packageRoot = resolve(__dirname, "..");
-  for (const profile of ["release", "debug"]) {
-    const candidate = resolve(
-      packageRoot,
-      "..",
-      "bitrouter",
-      "target",
-      profile,
-      "bitrouter"
-    );
-    if (existsSync(candidate)) return candidate;
-  }
-
-  // Try 3: npm package (@bitrouter/cli published by cargo-dist).
-  try {
-    // The package exports the path to the platform-specific binary.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const cli = require("@bitrouter/cli") as { getBinaryPath: () => string };
-    return cli.getBinaryPath();
-  } catch {
-    // Package not installed or doesn't export getBinaryPath — fall through.
-  }
-
-  // Try 4: binary on PATH.
-  try {
-    const result = execSync("which bitrouter", {
-      encoding: "utf-8",
-      timeout: 5_000,
-    }).trim();
-    if (result) return result;
-  } catch {
-    // Not on PATH — fall through.
-  }
-
-  throw new Error(
-    "BitRouter binary not found.\n" +
-      "Install it with one of:\n" +
-      "  cargo build (in sibling ../bitrouter dir)  # local development\n" +
-      "  npm install @bitrouter/cli          # recommended (via cargo-dist)\n" +
-      "  cargo install bitrouter             # from source\n" +
-      "  cargo binstall bitrouter            # pre-built binary\n" +
-      "\n" +
-      "Or set BITROUTER_BIN=/path/to/bitrouter or ensure `bitrouter` is on your $PATH."
-  );
-}
+import { refreshMetrics } from "./metrics.js";
+import { resolveBinaryPath } from "./binary.js";
 
 // ── Service registration ─────────────────────────────────────────────
 
@@ -105,26 +39,38 @@ function resolveBinaryPath(): string {
 export function registerBitrouterService(
   api: OpenClawPluginApi,
   config: BitrouterPluginConfig,
-  state: BitrouterState
+  state: BitrouterState,
+  stateDirRef: { value: string }
 ): void {
   api.registerService({
     id: "bitrouter",
 
-    start: async () => {
-      // 1. Resolve home directory and write config files.
-      state.homeDir = resolveHomeDir(api);
-      writeConfigToDir(config, state.homeDir);
-      api.log.info(`Config written to ${state.homeDir}`);
+    start: async (ctx: OpenClawPluginServiceContext) => {
+      // Capture stateDir from service context — authoritative source.
+      stateDirRef.value = ctx.stateDir;
 
-      // 2. Find the binary.
+      // 1. Resolve home directory and write config files.
+      state.homeDir = resolveHomeDir(ctx.stateDir);
+
+      // For BYOK mode, synthesize a provider entry from the stored credential.
+      // The wizard writes the API key into the auth-profiles credential store;
+      // we read it back here so BitRouter's YAML can reference it.
+      const effectiveConfig = buildEffectiveConfig(config, state.homeDir);
+
+      // inlineSecrets: true because we run with --db "" (no-auth mode),
+      // so BitRouter cannot load a .env file — keys must be in the YAML.
+      writeConfigToDir(effectiveConfig, state.homeDir, { inlineSecrets: true });
+      api.logger.info(`Config written to ${state.homeDir}`);
+
+      // 2. Find the binary (downloads from GitHub releases if not cached).
       let binaryPath: string;
       try {
-        binaryPath = resolveBinaryPath();
+        binaryPath = await resolveBinaryPath(ctx.stateDir);
       } catch (err) {
-        api.log.error(`${err}`);
+        api.logger.error(`${err}`);
         throw err;
       }
-      api.log.info(`Using binary: ${binaryPath}`);
+      api.logger.info(`Using binary: ${binaryPath}`);
 
       // 3. Spawn the process.
       //
@@ -133,22 +79,33 @@ export function registerBitrouterService(
       //
       // The --home-dir flag ensures BitRouter reads our generated config
       // rather than any user-level ~/.bitrouter config.
-      const child = spawn(binaryPath, ["--home-dir", state.homeDir, "serve"], {
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: false,
-      });
+      //
+      // Option B (local dev): pass --db "" to force BitRouter into
+      // auth-disabled mode. When the DB connection string is empty/invalid,
+      // BitRouter skips JWT auth entirely and accepts any bearer token.
+      // This is a side-effect of a failed DB init, not a stable API —
+      // tracked for replacement with Option A (plugin-generated JWT) once
+      // BitRouter exposes a proper no-auth flag or token-injection path.
+      const child = spawn(
+        binaryPath,
+        ["--home-dir", state.homeDir, "--db", "", "serve"],
+        {
+          stdio: ["ignore", "pipe", "pipe"],
+          detached: false,
+        }
+      );
 
       state.process = child;
 
       // Pipe stdout/stderr to the plugin logger.
       child.stdout?.on("data", (data: Buffer) => {
         const line = data.toString().trim();
-        if (line) api.log.info(`[bitrouter] ${line}`);
+        if (line) api.logger.info(`[bitrouter] ${line}`);
       });
 
       child.stderr?.on("data", (data: Buffer) => {
         const line = data.toString().trim();
-        if (line) api.log.warn(`[bitrouter] ${line}`);
+        if (line) api.logger.warn(`[bitrouter] ${line}`);
       });
 
       // Handle unexpected exits.
@@ -158,7 +115,7 @@ export function registerBitrouterService(
         stopHealthCheck(state);
 
         if (code !== null && code !== 0) {
-          api.log.error(
+          api.logger.error(
             `BitRouter exited with code ${code}` +
               (signal ? ` (signal: ${signal})` : "")
           );
@@ -175,23 +132,24 @@ export function registerBitrouterService(
               `Check logs in ${state.homeDir}/logs/`
           );
         }
-        api.log.warn(
+        api.logger.warn(
           "BitRouter did not become healthy within timeout — " +
             "continuing with health checks"
         );
       } else {
         state.healthy = true;
-        api.log.info("BitRouter is ready");
+        api.logger.info("BitRouter is ready");
 
-        // Load the initial routing table.
+        // Load the initial routing table and metrics.
         await refreshRoutes(state, api);
+        await refreshMetrics(state, api, config);
       }
 
       // 5. Start periodic health checks.
       startHealthCheck(api, config, state);
     },
 
-    stop: async () => {
+    stop: async (_ctx: OpenClawPluginServiceContext) => {
       // Stop health checks first.
       stopHealthCheck(state);
 
@@ -206,19 +164,143 @@ export function registerBitrouterService(
 
       if (!exited) {
         // Escalate to SIGKILL.
-        api.log.warn("BitRouter did not exit gracefully — sending SIGKILL");
+        api.logger.warn("BitRouter did not exit gracefully — sending SIGKILL");
         child.kill("SIGKILL");
         await waitForExit(child, 3_000);
       }
 
       state.process = null;
       state.healthy = false;
-      api.log.info("BitRouter stopped");
+      api.logger.info("BitRouter stopped");
     },
   });
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Build an effective plugin config for BYOK mode.
+ *
+ * When mode is "byok", we read the stored API key from the BitRouter home
+ * dir's .env file (written by setup.ts) and synthesize a provider entry
+ * for the upstream provider chosen during setup.
+ *
+ * For other modes or when no BYOK credential is found, returns config as-is.
+ */
+function buildEffectiveConfig(
+  config: BitrouterPluginConfig,
+  homeDir: string
+): BitrouterPluginConfig {
+  if (config.mode !== "byok" || !config.byok?.upstreamProvider) {
+    return config;
+  }
+
+  const { upstreamProvider, apiBase } = config.byok;
+
+  // Read the API key from the .env file written by the wizard.
+  const envPath = path.join(homeDir, ".env");
+  let apiKey: string | undefined;
+
+  try {
+    const entries = parseEnvFile(fs.readFileSync(envPath, "utf-8"));
+    const expectedKey = toEnvVarKey(upstreamProvider);
+    apiKey = entries.get(expectedKey) || undefined;
+  } catch {
+    // .env file doesn't exist — fall through to env-var detection.
+  }
+
+  // Default model routes: map well-known virtual model names to the upstream
+  // provider. This lets BitRouter resolve requests without a DB, covering
+  // the common models OpenClaw sends (auto, latest, etc.).
+  const defaultModelRoutes = buildDefaultModelRoutes(upstreamProvider);
+
+  if (!apiKey) {
+    // No key in .env — BitRouter will pick it up from env vars if set
+    // (e.g. OPENROUTER_API_KEY in the shell environment).
+    return {
+      ...config,
+      providers: {
+        ...config.providers,
+        [upstreamProvider]: {
+          ...(apiBase ? { apiBase } : resolveProviderApiBase(upstreamProvider)),
+          ...(upstreamProvider === "openai" ? {} : { derives: "openai" }),
+        },
+      },
+      models: { ...config.models, ...defaultModelRoutes },
+    };
+  }
+
+  // Build a synthesized provider entry with the stored API key.
+  // If the user supplied an apiBase via config.byok.apiBase, use that.
+  // Otherwise fall back to the canonical base URL for well-known providers.
+  return {
+    ...config,
+    providers: {
+      ...config.providers,
+      [upstreamProvider]: {
+        apiKey,
+        ...(apiBase ? { apiBase } : resolveProviderApiBase(upstreamProvider)),
+        ...(upstreamProvider === "openai" ? {} : { derives: "openai" }),
+      },
+    },
+    models: { ...config.models, ...defaultModelRoutes },
+  };
+}
+
+/**
+ * Return the canonical OpenAI-compatible base URL for well-known providers.
+ * BitRouter's `derives: openai` only inherits the auth scheme, not the URL;
+ * we must supply `api_base` explicitly for non-OpenAI providers.
+ */
+function resolveProviderApiBase(
+  provider: string
+): { apiBase: string } | Record<string, never> {
+  // OpenAI uses the default baked into BitRouter — no override needed.
+  if (provider === "openai") return {};
+  return provider in PROVIDER_API_BASES
+    ? { apiBase: PROVIDER_API_BASES[provider] }
+    : {};
+}
+
+/**
+ * Build default model→provider routes for BYOK mode.
+ *
+ * Maps common virtual model names to the chosen upstream provider so
+ * BitRouter can resolve requests without a persistent DB. OpenClaw
+ * sends model names like "auto", "openrouter/auto" etc.; we normalise
+ * them here. The provider:modelId pairs are passed-through as-is
+ * (e.g. OpenRouter accepts "auto" as a valid model identifier).
+ */
+function buildDefaultModelRoutes(
+  upstreamProvider: string
+): Record<string, { strategy: "priority"; endpoints: Array<{ provider: string; modelId: string }> }> {
+  // Virtual names that map to the provider's default model.
+  //
+  // For OpenRouter, avoid "auto" — it currently resolves to reasoning models
+  // (gpt-5-nano etc.) that return content:null, which BitRouter v0.4.0 cannot
+  // parse. Use a stable non-reasoning model instead.
+  // For other providers, use a sensible default.
+  const autoModelIds: Record<string, string> = {
+    openrouter: "anthropic/claude-3-haiku",
+    openai: "gpt-4o",
+    anthropic: "claude-3-5-haiku-20241022",
+    other: "default",
+  };
+
+  const autoModelId = autoModelIds[upstreamProvider] ?? "auto";
+
+  // Cover the common names OpenClaw might send:
+  const virtualNames = ["auto", "default", `${upstreamProvider}/auto`];
+
+  const routes: Record<string, { strategy: "priority"; endpoints: Array<{ provider: string; modelId: string }> }> = {};
+  for (const name of virtualNames) {
+    routes[name] = {
+      strategy: "priority",
+      endpoints: [{ provider: upstreamProvider, modelId: autoModelId }],
+    };
+  }
+  return routes;
+}
 
 /** Wait for a child process to emit the 'exit' event. */
 function waitForExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {

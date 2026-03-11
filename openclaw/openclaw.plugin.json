@@ -57,6 +57,32 @@
           }
         }
       },
+      "routing": {
+        "type": "object",
+        "description": "Metrics-informed routing configuration.",
+        "properties": {
+          "errorRateThreshold": {
+            "type": "number",
+            "default": 0.5,
+            "description": "Error rate above which an endpoint is circuit-broken (0-1)."
+          },
+          "minRequestsForScoring": {
+            "type": "number",
+            "default": 5,
+            "description": "Minimum requests before metrics are used for endpoint scoring."
+          },
+          "preferMetrics": {
+            "type": "boolean",
+            "default": true,
+            "description": "Use metrics data to inform routing decisions when available."
+          },
+          "mockMetrics": {
+            "type": "boolean",
+            "default": false,
+            "description": "TEMPORARY: Generate mock metrics from known routes when the binary doesn't support /v1/metrics yet. Remove once bitrouter#70 ships."
+          }
+        }
+      },
       "models": {
         "type": "object",
         "description": "Model routing definitions. Keys are virtual model names. Values define routing strategy and endpoint lists.",
@@ -97,11 +123,46 @@
           },
           "required": ["endpoints"]
         }
+      },
+      "mode": {
+        "type": "string",
+        "enum": ["byok", "cloud"],
+        "description": "Setup mode chosen during the first-run wizard. 'byok' = bring your own API key. 'cloud' = BitRouter Cloud (coming soon). Unset = plugin not yet configured."
+      },
+      "byok": {
+        "type": "object",
+        "description": "BYOK upstream provider configuration. Set automatically by the setup wizard.",
+        "properties": {
+          "upstreamProvider": {
+            "type": "string",
+            "description": "Upstream provider id (e.g. 'openrouter', 'openai', 'anthropic', or 'other')."
+          },
+          "apiBase": {
+            "type": "string",
+            "description": "Custom API base URL. Defaults to the provider's public URL."
+          }
+        },
+        "required": ["upstreamProvider"]
       }
     }
   },
   "uiHints": {
     "icon": "router",
-    "category": "infrastructure"
+    "category": "infrastructure",
+    "mode": {
+      "label": "Setup Mode",
+      "help": "Set by the first-run wizard. Run: openclaw models auth login --provider bitrouter"
+    },
+    "byok": {
+      "label": "BYOK Provider Config",
+      "help": "Upstream provider settings configured via the BYOK wizard."
+    },
+    "byok.upstreamProvider": {
+      "label": "Upstream Provider"
+    },
+    "byok.apiBase": {
+      "label": "Custom API Base URL",
+      "placeholder": "https://openrouter.ai/api/v1"
+    }
   }
 }

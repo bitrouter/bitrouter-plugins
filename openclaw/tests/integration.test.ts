@@ -14,7 +14,9 @@ import type {
   OpenClawPluginApi,
   BitrouterPluginConfig,
   BitrouterState,
-  ModelResolveEvent,
+  PluginHookBeforeModelResolveEvent,
+  PluginHookAgentContext,
+  PluginHookBeforeModelResolveResult,
 } from "../src/types.js";
 import { checkHealth, waitForReady } from "../src/health.js";
 import { refreshRoutes, registerModelInterceptor } from "../src/routing.js";
@@ -37,37 +39,55 @@ async function isBitrouterRunning(): Promise<boolean> {
 }
 
 /** Create a mock OpenClaw plugin API that records all registrations. */
-function createMockApi(config: BitrouterPluginConfig = {}) {
+function createMockApi(config: BitrouterPluginConfig = {}, model = "default") {
   const registrations = {
-    services: [] as Array<{ id: string; start: () => Promise<void>; stop: () => Promise<void> }>,
-    providers: [] as Array<{ id: string; label: string; baseUrl?: string }>,
-    hooks: [] as Array<{ event: string; handler: Function }>,
+    services: [] as Array<{ id: string; start: Function; stop: Function }>,
+    providers: [] as Array<{ id: string; label: string }>,
+    hooks: [] as Array<{
+      event: string;
+      handler: (
+        event: PluginHookBeforeModelResolveEvent,
+        ctx: PluginHookAgentContext
+      ) => PluginHookBeforeModelResolveResult | void;
+    }>,
   };
 
   const logs: string[] = [];
 
-  const api: OpenClawPluginApi = {
-    registerService(opts) {
+  const api = {
+    registerService(opts: any) {
       registrations.services.push(opts);
     },
-    registerProvider(opts) {
+    registerProvider(opts: any) {
       registrations.providers.push(opts);
     },
-    on(event, handler) {
-      registrations.hooks.push({ event, handler });
+    registerTool() {
+      // no-op for integration tests
     },
-    getConfig() {
-      return config;
+    registerHttpRoute() {
+      // no-op for integration tests
     },
-    getDataDir() {
-      return "/tmp/bitrouter-integration-test";
+    registerGatewayMethod() {
+      // no-op for integration tests
     },
-    log: {
+    registerCli() {
+      // no-op for integration tests
+    },
+    on(event: string, handler: Function) {
+      registrations.hooks.push({ event, handler: handler as any });
+    },
+    pluginConfig: config,
+    config: {
+      agents: {
+        defaults: { model: { primary: model } },
+      },
+    },
+    logger: {
       info(msg: string) { logs.push(`[INFO] ${msg}`); },
       warn(msg: string) { logs.push(`[WARN] ${msg}`); },
       error(msg: string) { logs.push(`[ERROR] ${msg}`); },
     },
-  };
+  } as unknown as OpenClawPluginApi;
 
   return { api, registrations, logs };
 }
@@ -100,6 +120,8 @@ describe("Integration: plugin against live BitRouter", () => {
         knownRoutes: [],
         healthCheckTimer: null,
         homeDir: "/tmp/test",
+        dynamicRoutes: new Map(),
+        metrics: null,
       };
 
       const result = await checkHealth(state);
@@ -116,6 +138,8 @@ describe("Integration: plugin against live BitRouter", () => {
         knownRoutes: [],
         healthCheckTimer: null,
         homeDir: "/tmp/test",
+        dynamicRoutes: new Map(),
+        metrics: null,
       };
 
       const result = await waitForReady(state);
@@ -137,6 +161,8 @@ describe("Integration: plugin against live BitRouter", () => {
         knownRoutes: [],
         healthCheckTimer: null,
         homeDir: "/tmp/test",
+        dynamicRoutes: new Map(),
+        metrics: null,
       };
 
       await refreshRoutes(state, api);
@@ -158,7 +184,7 @@ describe("Integration: plugin against live BitRouter", () => {
       if (!running) return;
 
       const config: BitrouterPluginConfig = { interceptAllModels: false };
-      const { api } = createMockApi(config);
+      const { api, registrations } = createMockApi(config, "default");
       const state: BitrouterState = {
         process: null,
         healthy: true,
@@ -166,40 +192,22 @@ describe("Integration: plugin against live BitRouter", () => {
         knownRoutes: [{ model: "default", provider: "openrouter", protocol: "openai" }],
         healthCheckTimer: null,
         homeDir: "/tmp/test",
+        dynamicRoutes: new Map(),
+        metrics: null,
       };
 
-      // Register the hook
       registerModelInterceptor(api, config, state);
 
-      // Simulate a before_model_resolve event for a known model
-      let overrideResult: { provider: string; model?: string } | null = null;
-      const event: ModelResolveEvent = {
-        model: "default",
-        override(opts) {
-          overrideResult = opts;
-        },
-      };
-
-      // Find and call the registered hook handler
-      const hookEntry = (api as any);
-      // We need to call the handler that was registered via api.on()
-      // Since our mock stores hooks, get it from registrations
-      const { registrations } = createMockApi(config);
-      // Re-register to capture
-      const api2 = createMockApi(config);
-      const state2 = { ...state };
-      registerModelInterceptor(api2.api, config, state2);
-
-      const hook = api2.registrations.hooks.find(
+      const hook = registrations.hooks.find(
         (h) => h.event === "before_model_resolve"
       );
       expect(hook).toBeDefined();
 
-      hook!.handler(event);
+      const result = hook!.handler({ prompt: "test" }, { agentId: "main" });
 
-      expect(overrideResult).toEqual({
-        provider: "bitrouter",
-        model: "default",
+      expect(result).toEqual({
+        providerOverride: "bitrouter",
+        modelOverride: "default",
       });
     });
 
@@ -207,7 +215,7 @@ describe("Integration: plugin against live BitRouter", () => {
       if (!running) return;
 
       const config: BitrouterPluginConfig = { interceptAllModels: false };
-      const { api, registrations } = createMockApi(config);
+      const { api, registrations } = createMockApi(config, "unknown-model-xyz");
       const state: BitrouterState = {
         process: null,
         healthy: true,
@@ -215,27 +223,24 @@ describe("Integration: plugin against live BitRouter", () => {
         knownRoutes: [{ model: "default", provider: "openrouter", protocol: "openai" }],
         healthCheckTimer: null,
         homeDir: "/tmp/test",
+        dynamicRoutes: new Map(),
+        metrics: null,
       };
 
       registerModelInterceptor(api, config, state);
 
-      let overrideCalled = false;
-      const event: ModelResolveEvent = {
-        model: "unknown-model-xyz",
-        override() {
-          overrideCalled = true;
-        },
-      };
-
-      registrations.hooks[0].handler(event);
-      expect(overrideCalled).toBe(false);
+      const result = registrations.hooks[0].handler(
+        { prompt: "test" },
+        { agentId: "main" }
+      );
+      expect(result).toBeUndefined();
     });
 
     it("model interceptor routes everything in interceptAll mode", async () => {
       if (!running) return;
 
       const config: BitrouterPluginConfig = { interceptAllModels: true };
-      const { api, registrations } = createMockApi(config);
+      const { api, registrations } = createMockApi(config, "any-random-model");
       const state: BitrouterState = {
         process: null,
         healthy: true,
@@ -243,22 +248,19 @@ describe("Integration: plugin against live BitRouter", () => {
         knownRoutes: [],
         healthCheckTimer: null,
         homeDir: "/tmp/test",
+        dynamicRoutes: new Map(),
+        metrics: null,
       };
 
       registerModelInterceptor(api, config, state);
 
-      let overrideResult: { provider: string; model?: string } | null = null;
-      const event: ModelResolveEvent = {
-        model: "any-random-model",
-        override(opts) {
-          overrideResult = opts;
-        },
-      };
-
-      registrations.hooks[0].handler(event);
-      expect(overrideResult).toEqual({
-        provider: "bitrouter",
-        model: "any-random-model",
+      const result = registrations.hooks[0].handler(
+        { prompt: "test" },
+        { agentId: "main" }
+      );
+      expect(result).toEqual({
+        providerOverride: "bitrouter",
+        modelOverride: "any-random-model",
       });
     });
   });
@@ -272,6 +274,9 @@ describe("Integration: plugin against live BitRouter", () => {
       const config: BitrouterPluginConfig = {
         port: 8787,
         host: "127.0.0.1",
+        // mode must be set for full activation (first-run gate)
+        mode: "byok",
+        byok: { upstreamProvider: "openrouter" },
         providers: {
           openrouter: {
             derives: "openai",
@@ -301,7 +306,7 @@ describe("Integration: plugin against live BitRouter", () => {
 
       console.log("  Registrations:", {
         services: registrations.services.map((s) => s.id),
-        providers: registrations.providers.map((p) => ({ id: p.id, baseUrl: p.baseUrl })),
+        providers: registrations.providers.map((p) => ({ id: p.id })),
         hooks: registrations.hooks.map((h) => h.event),
       });
       console.log("  Logs:", logs);
@@ -313,7 +318,6 @@ describe("Integration: plugin against live BitRouter", () => {
       // Provider registered
       expect(registrations.providers).toHaveLength(1);
       expect(registrations.providers[0].id).toBe("bitrouter");
-      expect(registrations.providers[0].baseUrl).toBe("http://127.0.0.1:8787");
 
       // Hook registered
       expect(registrations.hooks).toHaveLength(1);

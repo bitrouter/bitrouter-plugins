@@ -9,6 +9,29 @@
 
 import type { ChildProcess } from "node:child_process";
 
+// ── Setup mode ───────────────────────────────────────────────────────
+
+/**
+ * How the user wants to use BitRouter.
+ *
+ * "byok"  — bring-your-own-key: user provides upstream provider API key(s).
+ *           BitRouter holds them and proxies requests.
+ * "cloud" — sign in to BitRouterAI cloud (stub; OAuth coming in next version).
+ */
+export type SetupMode = "byok" | "cloud";
+
+/**
+ * BYOK upstream provider config — stored in pluginConfig after wizard runs.
+ * The apiKey is the raw key string (stored in openclaw's credential store
+ * via ProviderAuthResult.profiles, not in plain config).
+ */
+export interface BitrouterByokConfig {
+  /** Upstream provider id: "openrouter" | "openai" | "anthropic" | custom */
+  upstreamProvider: string;
+  /** Custom API base URL (optional — defaults to provider's public URL). */
+  apiBase?: string;
+}
+
 // ── Plugin configuration (from openclaw.plugin.json configSchema) ────
 
 /** Root plugin config — matches the configSchema in openclaw.plugin.json. */
@@ -20,6 +43,11 @@ export interface BitrouterPluginConfig {
   interceptAllModels?: boolean;
   providers?: Record<string, ProviderEntry>;
   models?: Record<string, ModelEntry>;
+  routing?: RoutingConfig;
+  /** Set by the first-run wizard. Undefined = not yet configured. */
+  mode?: SetupMode;
+  /** BYOK upstream provider config. Set when mode === "byok". */
+  byok?: BitrouterByokConfig;
 }
 
 /** A single provider entry in the plugin config (camelCase, TS-side). */
@@ -61,6 +89,82 @@ export interface HealthStatus {
   status: "ok" | "error";
 }
 
+// ── Metrics types ───────────────────────────────────────────────────
+
+/** Per-endpoint performance metrics. */
+export interface EndpointMetrics {
+  total_requests: number;
+  total_errors: number;
+  error_rate: number;
+  latency_p50_ms: number;
+  latency_p99_ms: number;
+}
+
+/** Per-route metrics from GET /v1/metrics. */
+export interface RouteMetrics {
+  model: string;
+  total_requests: number;
+  total_errors: number;
+  error_rate: number;
+  latency_p50_ms: number;
+  latency_p99_ms: number;
+  by_endpoint: Record<string, EndpointMetrics>;
+}
+
+/** Full response from GET /v1/metrics. */
+export interface MetricsResponse {
+  routes: Record<string, RouteMetrics>;
+}
+
+// ── Feedback type ───────────────────────────────────────────────────
+
+/** A feedback signal from POST /bitrouter/feedback. */
+export interface FeedbackSignal {
+  route: string;
+  outcome: "success" | "failure";
+  taskType?: string;
+  timestamp: number;
+}
+
+// ── Routing config ──────────────────────────────────────────────────
+
+/** Metrics-informed routing configuration. */
+export interface RoutingConfig {
+  errorRateThreshold?: number;
+  minRequestsForScoring?: number;
+  preferMetrics?: boolean;
+  /**
+   * TEMPORARY: Generate mock metrics from known routes when
+   * the BitRouter binary doesn't support GET /v1/metrics yet.
+   * Remove once bitrouter/bitrouter#70 ships.
+   */
+  mockMetrics?: boolean;
+}
+
+// ── Tool result type ─────────────────────────────────────────────────
+
+/** Standard tool result returned from agent tool execute functions. */
+export interface ToolResult {
+  content: Array<{ type: "text"; text: string }>;
+  isError?: boolean;
+}
+
+// ── Dynamic route type ──────────────────────────────────────────────
+
+/** A runtime-created route managed by agent tools (not from BitRouter config). */
+export interface DynamicRoute {
+  /** The virtual model name this route handles. */
+  model: string;
+  /** Routing strategy: "priority" (always first) or "load_balance" (round-robin). */
+  strategy: "priority" | "load_balance";
+  /** Ordered list of upstream endpoints. */
+  endpoints: EndpointEntry[];
+  /** Round-robin counter for load_balance strategy. */
+  rrCounter: number;
+  /** ISO timestamp of when this route was created/updated. */
+  createdAt: string;
+}
+
 // ── Plugin runtime state ─────────────────────────────────────────────
 
 /**
@@ -83,91 +187,70 @@ export interface BitrouterState {
   healthCheckTimer: ReturnType<typeof setInterval> | null;
   /** Absolute path to the generated BitRouter home directory. */
   homeDir: string;
+  /** Agent-created dynamic routes, keyed by model name. */
+  dynamicRoutes: Map<string, DynamicRoute>;
+  /** Cached metrics from GET /v1/metrics (null if unavailable). */
+  metrics: MetricsResponse | null;
 }
 
-// ── OpenClaw Plugin API type stubs ───────────────────────────────────
+// ── Re-exports from OpenClaw plugin SDK ──────────────────────────────
 //
-// These are minimal type declarations for the OpenClaw plugin API surface
-// that this plugin uses. In production, these would come from @openclaw/sdk.
-// For now, we declare them here so the plugin compiles without the SDK.
+// The plugin uses the real OpenClaw SDK types directly.
+// Re-exported here so all modules can import from "./types.js".
+//
+// Note: only types that are re-exported through the SDK barrel are listed here.
+// Types defined in the SDK but not in its barrel are defined locally below.
 
-export interface OpenClawPluginApi {
-  /** Register a managed service with start/stop lifecycle. */
-  registerService(opts: {
-    id: string;
-    start: () => Promise<void>;
-    stop: () => Promise<void>;
-  }): void;
+export type {
+  OpenClawPluginApi,
+  OpenClawPluginServiceContext,
+  OpenClawPluginService,
+  PluginLogger,
+  ProviderAuthContext,
+  ProviderAuthResult,
+  AnyAgentTool,
+  GatewayRequestHandlerOptions,
+} from "openclaw/plugin-sdk";
 
-  /** Register an LLM provider. */
-  registerProvider(opts: {
-    id: string;
-    label: string;
-    baseUrl?: string;
-    auth?: ProviderAuthMethod[];
-  }): void;
+// ── Locally-defined types matching SDK internals ─────────────────────
+//
+// These types exist in the SDK's .d.ts files but are not re-exported
+// through the openclaw/plugin-sdk barrel. We define structural
+// equivalents here based on the SDK's declarations.
 
-  /**
-   * Listen for plugin lifecycle events.
-   *
-   * The `before_model_resolve` hook fires before the agent runtime selects
-   * a model. The handler can call `event.override()` to redirect the
-   * request to a different provider/model.
-   */
-  on(
-    event: "before_model_resolve",
-    handler: (event: ModelResolveEvent) => void
-  ): void;
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 
-  /** Get this plugin's resolved config (merged with defaults). */
-  getConfig(): BitrouterPluginConfig;
+/** Plugin definition — the default export shape. */
+export type OpenClawPluginDefinition = {
+  id?: string;
+  name?: string;
+  description?: string;
+  version?: string;
+  register?: (api: OpenClawPluginApi) => void | Promise<void>;
+  activate?: (api: OpenClawPluginApi) => void | Promise<void>;
+};
 
-  /** Get the plugin's data directory (persistent across restarts). */
-  getDataDir(): string;
+/** Hook event for before_model_resolve. */
+export type PluginHookBeforeModelResolveEvent = {
+  prompt: string;
+};
 
-  /** Structured logger scoped to this plugin. */
-  log: {
-    info(msg: string, ...args: unknown[]): void;
-    warn(msg: string, ...args: unknown[]): void;
-    error(msg: string, ...args: unknown[]): void;
-  };
-}
+/** Hook result for before_model_resolve. */
+export type PluginHookBeforeModelResolveResult = {
+  modelOverride?: string;
+  providerOverride?: string;
+};
 
-/** A single auth method offered by a provider. */
-export interface ProviderAuthMethod {
-  id: string;
-  label: string;
-  kind: "api_key" | "oauth";
-  run: (ctx: ProviderAuthContext) => Promise<ProviderAuthResult>;
-}
-
-/** Context passed to a provider's auth run() function. */
-export interface ProviderAuthContext {
-  /** Prompt the user for input (e.g. an API key). */
-  prompter: {
-    prompt(opts: { message: string; type?: "text" | "password" }): Promise<string>;
-  };
-}
-
-/** Result returned from a provider's auth run() function. */
-export interface ProviderAuthResult {
-  profiles: Array<{
-    profileId: string;
-    credential: {
-      type: "api_key";
-      provider: string;
-      key: string;
-    };
-  }>;
-}
-
-/** Event object passed to the before_model_resolve hook. */
-export interface ModelResolveEvent {
-  /** The model name requested by the agent (e.g. "gpt-4o", "claude-sonnet"). */
-  model: string;
-  /** Override the provider and optionally the model name. */
-  override(opts: { provider: string; model?: string }): void;
-}
+/** Agent context passed to hooks. */
+export type PluginHookAgentContext = {
+  agentId?: string;
+  sessionKey?: string;
+  sessionId?: string;
+  workspaceDir?: string;
+  messageProvider?: string;
+  trigger?: string;
+  channelId?: string;
+};
 
 // ── Config defaults ──────────────────────────────────────────────────
 

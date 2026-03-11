@@ -22,8 +22,12 @@
 import type {
   BitrouterPluginConfig,
   BitrouterState,
-  ModelResolveEvent,
+  DynamicRoute,
+  EndpointMetrics,
   OpenClawPluginApi,
+  PluginHookBeforeModelResolveEvent,
+  PluginHookBeforeModelResolveResult,
+  PluginHookAgentContext,
   RouteInfo,
 } from "./types.js";
 import { DEFAULTS } from "./types.js";
@@ -50,7 +54,7 @@ export async function refreshRoutes(
     clearTimeout(timeout);
 
     if (!res.ok) {
-      api.log.warn(
+      api.logger.warn(
         `Failed to fetch routes: ${res.status} ${res.statusText}`
       );
       return;
@@ -58,13 +62,174 @@ export async function refreshRoutes(
 
     const body = (await res.json()) as { routes: RouteInfo[] };
     state.knownRoutes = body.routes;
-    api.log.info(
+    api.logger.info(
       `Loaded ${state.knownRoutes.length} route(s) from BitRouter`
     );
   } catch (err) {
     // Don't clear existing routes — they may still be valid.
-    api.log.warn(`Route refresh failed: ${err}`);
+    api.logger.warn(`Route refresh failed: ${err}`);
   }
+}
+
+// ── Metrics-informed endpoint selection ───────────────────────────────
+
+/**
+ * Score an endpoint based on its metrics. Higher is better.
+ * score = (1 - error_rate) / latency_p50_ms
+ *
+ * Returns null if the endpoint should be skipped (circuit breaker).
+ */
+export function scoreEndpoint(
+  metrics: EndpointMetrics | undefined,
+  errorRateThreshold: number,
+  minRequests: number
+): number | null {
+  if (!metrics || metrics.total_requests < minRequests) {
+    return 0; // No data — neutral score, don't skip.
+  }
+
+  // Circuit breaker: skip endpoints with error rate above threshold.
+  if (metrics.error_rate > errorRateThreshold) {
+    return null;
+  }
+
+  const latency = Math.max(metrics.latency_p50_ms, 1); // avoid division by zero
+  return (1 - metrics.error_rate) / latency;
+}
+
+/**
+ * Select the best endpoint from a list using metrics data.
+ * Falls back to the first endpoint if no metrics or all are tripped.
+ */
+export function selectBestEndpoint(
+  endpoints: Array<{ provider: string; modelId: string }>,
+  modelName: string,
+  state: BitrouterState,
+  config: BitrouterPluginConfig
+): { provider: string; modelId: string } {
+  if (endpoints.length <= 1 || !state.metrics) {
+    return endpoints[0];
+  }
+
+  const routeMetrics = state.metrics.routes[modelName];
+  if (!routeMetrics?.by_endpoint) {
+    return endpoints[0];
+  }
+
+  const threshold = config.routing?.errorRateThreshold ?? 0.5;
+  const minReqs = config.routing?.minRequestsForScoring ?? 5;
+
+  let bestScore = -1;
+  let bestEndpoint = endpoints[0];
+  let allTripped = true;
+
+  for (const ep of endpoints) {
+    const key = `${ep.provider}:${ep.modelId}`;
+    const epMetrics = routeMetrics.by_endpoint[key];
+    const score = scoreEndpoint(epMetrics, threshold, minReqs);
+
+    if (score !== null) {
+      allTripped = false;
+      if (score > bestScore) {
+        bestScore = score;
+        bestEndpoint = ep;
+      }
+    }
+  }
+
+  // If all endpoints are circuit-broken, fall back to first (let BitRouter handle it).
+  if (allTripped) return endpoints[0];
+
+  return bestEndpoint;
+}
+
+// ── Dynamic route resolution ─────────────────────────────────────────
+
+/**
+ * Resolve a model name against agent-created dynamic routes.
+ *
+ * Returns a direct routing string like "openai:gpt-4o" that BitRouter
+ * will proxy without consulting its static routing table, or null if
+ * no dynamic route exists for this model.
+ *
+ * For load_balance strategy with metrics available, uses weighted
+ * selection preferring healthier endpoints over pure round-robin.
+ */
+export function resolveDynamicRoute(
+  state: BitrouterState,
+  modelName: string,
+  config?: BitrouterPluginConfig
+): string | null {
+  const route = state.dynamicRoutes.get(modelName);
+  if (!route || route.endpoints.length === 0) return null;
+
+  let endpoint;
+
+  // If metrics are available and preferMetrics is enabled, use scoring.
+  const useMetrics =
+    config?.routing?.preferMetrics !== false &&
+    state.metrics &&
+    route.strategy === "load_balance" &&
+    route.endpoints.length > 1;
+
+  if (useMetrics) {
+    endpoint = selectBestEndpoint(
+      route.endpoints,
+      modelName,
+      state,
+      config!
+    );
+  } else if (route.strategy === "load_balance") {
+    const idx = route.rrCounter % route.endpoints.length;
+    route.rrCounter++;
+    endpoint = route.endpoints[idx];
+  } else {
+    // "priority" — always use the first endpoint.
+    endpoint = route.endpoints[0];
+  }
+
+  return `${endpoint.provider}:${endpoint.modelId}`;
+}
+
+// ── Model name resolution ────────────────────────────────────────────
+
+/**
+ * Resolve the model name for a given agent from the OpenClaw config.
+ *
+ * The before_model_resolve hook receives `{ prompt }` and `{ agentId }`,
+ * not the model name directly. We look up the agent's configured primary
+ * model in `api.config.agents` and strip the provider prefix.
+ */
+function resolveModelName(api: OpenClawPluginApi, agentId: string): string {
+  const agentList = (api.config as {
+    agents?: {
+      list?: Array<{
+        id: string;
+        model?: { primary?: string } | string;
+      }>;
+      defaults?: { model?: { primary?: string } | string };
+    };
+  }).agents;
+
+  const agentEntry = agentList?.list?.find((a) => a.id === agentId);
+  const agentModel = agentEntry?.model;
+  const defaultModel = agentList?.defaults?.model;
+
+  const extract = (m: unknown): string | undefined => {
+    if (typeof m === "string") return m;
+    if (m && typeof m === "object" && "primary" in m) {
+      return (m as { primary?: string }).primary;
+    }
+    return undefined;
+  };
+
+  const fullModel =
+    extract(agentModel) ?? extract(defaultModel) ?? "default";
+
+  // Strip provider prefix (e.g. "openrouter/auto" → "auto")
+  return fullModel.includes("/")
+    ? fullModel.split("/").slice(1).join("/")
+    : fullModel;
 }
 
 // ── Hook registration ────────────────────────────────────────────────
@@ -72,35 +237,60 @@ export async function refreshRoutes(
 /**
  * Register the before_model_resolve hook that redirects matching model
  * requests to the "bitrouter" provider.
+ *
+ * Resolution order:
+ * 1. Dynamic routes (agent-created, plugin-layer) — checked first
+ * 2. Static routes (BitRouter config, cached in knownRoutes)
+ * 3. Fall through to OpenClaw's native resolution
  */
 export function registerModelInterceptor(
   api: OpenClawPluginApi,
   config: BitrouterPluginConfig,
   state: BitrouterState
 ): void {
+  // interceptAll logic:
+  // - When mode is "byok" or "cloud", routing works by redirecting the
+  //   existing provider's baseUrl through BitRouter (set via configPatch
+  //   in setup.ts). The before_model_resolve hook is NOT needed for this
+  //   path — OpenClaw sends to openrouter but hits BitRouter's URL.
+  // - interceptAllModels: true can still be explicitly set to force all
+  //   requests through the "bitrouter" provider override (advanced usage).
+  // - Default: false (transparent URL-redirect is enough).
   const interceptAll = config.interceptAllModels ?? DEFAULTS.interceptAllModels;
 
-  api.on("before_model_resolve", (event: ModelResolveEvent) => {
-    // Don't intercept if BitRouter isn't healthy.
-    if (!state.healthy) return;
+  api.on(
+    "before_model_resolve",
+    (
+      _event: PluginHookBeforeModelResolveEvent,
+      ctx: PluginHookAgentContext
+    ): PluginHookBeforeModelResolveResult | void => {
+      // Don't intercept if BitRouter isn't healthy.
+      if (!state.healthy) return;
 
-    const modelName = event.model;
+      const modelName = resolveModelName(api, ctx.agentId ?? "main");
 
-    if (interceptAll) {
-      // Route everything through BitRouter (it can handle any model
-      // via direct routing like "openai:gpt-4o").
-      event.override({ provider: "bitrouter", model: modelName });
-      return;
+      // 1. Dynamic routes (plugin-layer, agent-created) take priority.
+      const directRoute = resolveDynamicRoute(state, modelName, config);
+      if (directRoute) {
+        return { providerOverride: "bitrouter", modelOverride: directRoute };
+      }
+
+      // 2. Existing static route logic.
+      if (interceptAll) {
+        // Route everything through BitRouter (it can handle any model
+        // via direct routing like "openai:gpt-4o").
+        return { providerOverride: "bitrouter", modelOverride: modelName };
+      }
+
+      // Selective mode: only intercept models in BitRouter's routing table.
+      const isKnownRoute = state.knownRoutes.some(
+        (r) => r.model === modelName
+      );
+
+      if (isKnownRoute) {
+        return { providerOverride: "bitrouter", modelOverride: modelName };
+      }
+      // Unknown models fall through to OpenClaw's native resolution.
     }
-
-    // Selective mode: only intercept models in BitRouter's routing table.
-    const isKnownRoute = state.knownRoutes.some(
-      (r) => r.model === modelName
-    );
-
-    if (isKnownRoute) {
-      event.override({ provider: "bitrouter", model: modelName });
-    }
-    // Unknown models fall through to OpenClaw's native resolution.
-  });
+  );
 }

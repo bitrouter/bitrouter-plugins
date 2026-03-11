@@ -2,6 +2,7 @@
   "name": "@bitrouter/openclaw-plugin",
   "version": "0.1.0",
   "description": "BitRouter integration for OpenClaw — transparent LLM routing with failover, load balancing, and multi-provider support.",
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
@@ -18,18 +19,23 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "@sinclair/typebox": "^0.32.0",
     "yaml": "^2.4.0"
-  },
-  "optionalDependencies": {
-    "@bitrouter/cli": "^0.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "openclaw": "^2026.3.8",
     "typescript": "^5.4.0",
     "vitest": "^2.0.0"
   },
   "engines": {
     "node": ">=18"
+  },
+  "openclaw": {
+    "id": "bitrouter",
+    "extensions": [
+      "./dist/openclaw-adapter.js"
+    ]
   },
   "license": "MIT",
   "repository": {
