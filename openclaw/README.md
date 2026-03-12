@@ -142,85 +142,16 @@ Define virtual model names with routing strategies:
 
 ## Agent Tools
 
-The plugin registers optional tools that agents can call at runtime to inspect and configure routing without restarting BitRouter.
+The plugin registers 4 optional tools that agents can call at runtime. Each maps directly to a BitRouter CLI command — the agent can observe state and manage authentication, but cannot interfere with the daemon lifecycle (which the plugin manages automatically).
 
-### `bitrouter_status`
+| Tool | CLI equivalent | Purpose |
+|------|---------------|---------|
+| `bitrouter_status` | `bitrouter status` | Check health, providers, listen address, daemon status |
+| `bitrouter_keygen` | `bitrouter keygen` | Generate a scoped JWT for API access |
+| `bitrouter_account` | `bitrouter account` | Manage Ed25519 keypairs (list, generate, set active) |
+| `bitrouter_keys` | `bitrouter keys` | List, inspect, or remove saved JWTs |
 
-Returns BitRouter health, provider count, route counts, base URL, and process status.
-
-```json
-{
-  "healthy": true,
-  "baseUrl": "http://127.0.0.1:8787",
-  "processRunning": true,
-  "providerCount": 3,
-  "staticRouteCount": 2,
-  "dynamicRouteCount": 1
-}
-```
-
-### `bitrouter_list_providers`
-
-Lists known providers from config and discovered routes, indicating which have API keys available in the environment.
-
-### `bitrouter_list_routes`
-
-Lists all routes — both static (from BitRouter config) and dynamic (agent-created) — with a `source` label on each entry.
-
-### `bitrouter_create_route`
-
-Creates or updates a dynamic route for a virtual model name. Dynamic routes are resolved in the plugin layer and take priority over static routes.
-
-**Parameters:**
-
-| Param | Type | Default | Description |
-|-------|------|---------|-------------|
-| `model` | `string` | *(required)* | Virtual model name to route. |
-| `strategy` | `"priority" \| "load_balance"` | `"priority"` | `"priority"` always uses the first endpoint; `"load_balance"` round-robins. |
-| `endpoints` | `array` | *(required, min 1)* | List of `{ provider, modelId }` objects. |
-
-**Example:**
-
-```json
-{
-  "model": "fast",
-  "strategy": "load_balance",
-  "endpoints": [
-    { "provider": "openai", "modelId": "gpt-4o-mini" },
-    { "provider": "anthropic", "modelId": "claude-haiku-4-5-20251001" }
-  ]
-}
-```
-
-Upsert semantics — calling with the same model name overwrites the previous route. Warnings are returned if the model shadows a static route or references an unknown provider.
-
-### `bitrouter_delete_route`
-
-Removes a dynamic route by model name. Returns an error if the route doesn't exist or is a static route (static routes are managed by BitRouter config).
-
-### `bitrouter_create_token`
-
-Generates a scoped JWT via the `bitrouter keygen` CLI for API access.
-
-**Parameters:**
-
-| Param | Type | Default | Description |
-|-------|------|---------|-------------|
-| `scope` | `string` | `"api"` | Token scope. |
-| `exp` | `string` | `"1h"` | Expiration duration (e.g. `"1h"`, `"30m"`, `"7d"`). |
-| `models` | `string[]` | *(all)* | Restrict token to specific model names. |
-| `budget` | `number` | *(none)* | Budget limit in micro USD. |
-| `budgetScope` | `string` | *(none)* | Budget scope identifier. |
-| `budgetRange` | `string` | *(none)* | Budget time range (e.g. `"1h"`, `"1d"`). |
-
-### Dynamic vs Static Routes
-
-Routes come from two sources:
-
-- **Static routes** — Defined in BitRouter's YAML config (via plugin `models` config). Managed by BitRouter's routing table, cached in the plugin via `GET /v1/routes`.
-- **Dynamic routes** — Created at runtime by agents via `bitrouter_create_route`. Resolved entirely in the plugin layer using BitRouter's direct routing syntax (`provider:modelId`), which bypasses the static routing table.
-
-Dynamic routes always take priority. When a dynamic route is deleted, the static route (if any) is restored automatically. Dynamic routes do not persist across restarts.
+See [SKILL.md](./SKILL.md) for agent-facing usage guidance.
 
 ## Architecture
 
@@ -233,16 +164,11 @@ Agent requests model "fast"
 ┌─────────────────────────────────┐
 │  before_model_resolve hook      │
 │                                 │
-│  1. Dynamic route for "fast"?   │
-│     YES → resolve to direct     │
-│           routing string         │
-│           (e.g. "openai:gpt-4o")│
-│                                 │
-│  2. Static route for "fast"?    │
+│  1. Known static route?         │
 │     YES → override provider to  │
-│           "bitrouter"            │
+│           "bitrouter"           │
 │                                 │
-│  3. interceptAllModels?         │
+│  2. interceptAllModels?         │
 │     YES → override provider     │
 │     NO  → fall through          │
 └───────────────┬─────────────────┘
@@ -256,10 +182,8 @@ Agent requests model "fast"
                 │
                 ▼
 ┌─────────────────────────────────┐
-│  BitRouter resolves route       │
-│  Static: consults routing table │
-│  Dynamic: direct routing        │
-│    (provider:modelId passthru)  │
+│  BitRouter resolves route and   │
+│  proxies to upstream provider   │
 └───────────────┬─────────────────┘
                 │
                 ▼
@@ -290,9 +214,13 @@ src/
 ├── service.ts    Daemon lifecycle — spawn/stop bitrouter process
 ├── config.ts     Generate bitrouter.yaml from plugin config
 ├── provider.ts   Register "bitrouter" as an OpenClaw provider
-├── routing.ts    before_model_resolve hook, route table caching, dynamic route resolution
+├── routing.ts    before_model_resolve hook, route table caching
 ├── health.ts     Health check loop, startup readiness polling
-├── tools.ts      Agent tools for runtime route configuration and status
+├── tools.ts      Agent tools — thin CLI wrappers for status, auth, and key management
+├── metrics.ts    Fetch/cache metrics from BitRouter
+├── gateway.ts    Gateway RPC methods for external access
+├── auth.ts       Ed25519 keypair generation and JWT minting
+├── auto-detect.ts  Scan environment for provider API keys
 └── binary.ts     Binary resolution and auto-download from GitHub releases
 ```
 
@@ -341,12 +269,6 @@ openclaw plugins install -l ./bitrouter-plugins/openclaw
 ```
 
 This creates a symlink so changes are reflected immediately (after `npm run build`).
-
-## Roadmap
-
-- ~~**Phase 2 — Agent Tools:**~~ Runtime route configuration via agent-callable tools (shipped).
-- **Phase 3 — CLI & Observability:** `openclaw bitrouter status/routes/stats` commands, Gateway RPC methods for Control UI integration.
-- **Phase 4 — MCP & A2A Discovery:** Subscribe to BitRouter's discovery stream, dynamically register/deregister tools and sub-agents as they come online.
 
 ## License
 

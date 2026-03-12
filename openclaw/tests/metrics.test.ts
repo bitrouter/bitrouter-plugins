@@ -16,8 +16,8 @@ function createMockState(overrides?: Partial<BitrouterState>): BitrouterState {
     knownRoutes: [],
     healthCheckTimer: null,
     homeDir: "/tmp/bitrouter-test",
-    dynamicRoutes: new Map(),
     metrics: null,
+    authToken: null,
     ...overrides,
   };
 }
@@ -175,41 +175,6 @@ describe("refreshMetrics", () => {
     expect(result!.routes.fast).toBeDefined();
     // Should not warn when falling back to mock.
     expect(api.logger.warn).not.toHaveBeenCalled();
-  });
-
-  it("mock metrics include dynamic routes", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 404,
-        statusText: "Not Found",
-      })
-    );
-
-    const state = createMockState({
-      knownRoutes: [
-        { model: "fast", provider: "openai", protocol: "openai" as const },
-      ],
-    });
-    state.dynamicRoutes.set("custom", {
-      model: "custom",
-      strategy: "load_balance",
-      endpoints: [
-        { provider: "openai", modelId: "gpt-4o" },
-        { provider: "anthropic", modelId: "claude-sonnet" },
-      ],
-      rrCounter: 0,
-      createdAt: "2026-01-01T00:00:00.000Z",
-    });
-
-    const api = createMockApi();
-    const config = { routing: { mockMetrics: true } };
-    const result = await refreshMetrics(state, api, config);
-
-    expect(result!.routes.custom).toBeDefined();
-    expect(result!.routes.custom.by_endpoint["openai:gpt-4o"]).toBeDefined();
-    expect(result!.routes.custom.by_endpoint["anthropic:claude-sonnet"]).toBeDefined();
   });
 
   it("warns on non-404 error status", async () => {

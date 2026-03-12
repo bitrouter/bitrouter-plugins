@@ -116,16 +116,6 @@ export interface MetricsResponse {
   routes: Record<string, RouteMetrics>;
 }
 
-// ── Feedback type ───────────────────────────────────────────────────
-
-/** A feedback signal from POST /bitrouter/feedback. */
-export interface FeedbackSignal {
-  route: string;
-  outcome: "success" | "failure";
-  taskType?: string;
-  timestamp: number;
-}
-
 // ── Routing config ──────────────────────────────────────────────────
 
 /** Metrics-informed routing configuration. */
@@ -147,22 +137,6 @@ export interface RoutingConfig {
 export interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
   isError?: boolean;
-}
-
-// ── Dynamic route type ──────────────────────────────────────────────
-
-/** A runtime-created route managed by agent tools (not from BitRouter config). */
-export interface DynamicRoute {
-  /** The virtual model name this route handles. */
-  model: string;
-  /** Routing strategy: "priority" (always first) or "load_balance" (round-robin). */
-  strategy: "priority" | "load_balance";
-  /** Ordered list of upstream endpoints. */
-  endpoints: EndpointEntry[];
-  /** Round-robin counter for load_balance strategy. */
-  rrCounter: number;
-  /** ISO timestamp of when this route was created/updated. */
-  createdAt: string;
 }
 
 // ── Plugin runtime state ─────────────────────────────────────────────
@@ -187,8 +161,6 @@ export interface BitrouterState {
   healthCheckTimer: ReturnType<typeof setInterval> | null;
   /** Absolute path to the generated BitRouter home directory. */
   homeDir: string;
-  /** Agent-created dynamic routes, keyed by model name. */
-  dynamicRoutes: Map<string, DynamicRoute>;
   /** Cached metrics from GET /v1/metrics (null if unavailable). */
   metrics: MetricsResponse | null;
   /** JWT token for authenticating with the local BitRouter instance. */

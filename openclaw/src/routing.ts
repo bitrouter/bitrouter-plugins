@@ -22,7 +22,6 @@
 import type {
   BitrouterPluginConfig,
   BitrouterState,
-  DynamicRoute,
   EndpointMetrics,
   OpenClawPluginApi,
   PluginHookBeforeModelResolveEvent,
@@ -146,54 +145,6 @@ export function selectBestEndpoint(
   return bestEndpoint;
 }
 
-// ── Dynamic route resolution ─────────────────────────────────────────
-
-/**
- * Resolve a model name against agent-created dynamic routes.
- *
- * Returns a direct routing string like "openai:gpt-4o" that BitRouter
- * will proxy without consulting its static routing table, or null if
- * no dynamic route exists for this model.
- *
- * For load_balance strategy with metrics available, uses weighted
- * selection preferring healthier endpoints over pure round-robin.
- */
-export function resolveDynamicRoute(
-  state: BitrouterState,
-  modelName: string,
-  config?: BitrouterPluginConfig
-): string | null {
-  const route = state.dynamicRoutes.get(modelName);
-  if (!route || route.endpoints.length === 0) return null;
-
-  let endpoint;
-
-  // If metrics are available and preferMetrics is enabled, use scoring.
-  const useMetrics =
-    config?.routing?.preferMetrics !== false &&
-    state.metrics &&
-    route.strategy === "load_balance" &&
-    route.endpoints.length > 1;
-
-  if (useMetrics) {
-    endpoint = selectBestEndpoint(
-      route.endpoints,
-      modelName,
-      state,
-      config!
-    );
-  } else if (route.strategy === "load_balance") {
-    const idx = route.rrCounter % route.endpoints.length;
-    route.rrCounter++;
-    endpoint = route.endpoints[idx];
-  } else {
-    // "priority" — always use the first endpoint.
-    endpoint = route.endpoints[0];
-  }
-
-  return `${endpoint.provider}:${endpoint.modelId}`;
-}
-
 // ── Model name resolution ────────────────────────────────────────────
 
 /**
@@ -279,14 +230,6 @@ export function registerModelInterceptor(
       if (!state.healthy) return;
 
       const modelName = resolveModelName(api, ctx.agentId ?? "main");
-
-      // 1. Dynamic routes (plugin-layer, agent-created) take priority.
-      const directRoute = resolveDynamicRoute(state, modelName, config);
-      if (directRoute) {
-        return { providerOverride: "bitrouter", modelOverride: directRoute };
-      }
-
-      // 2. Existing static route logic.
       if (interceptAll) {
         // In auto mode, preserve the provider prefix so BitRouter can
         // route to the correct upstream via direct routing format

@@ -98,19 +98,6 @@ export function generateMockMetrics(state: BitrouterState): MetricsResponse {
     );
   }
 
-  // Build from dynamic routes.
-  for (const [, dr] of state.dynamicRoutes) {
-    const prev = existing[dr.model];
-    const endpointKeys = dr.endpoints.map(
-      (e) => `${e.provider}:${e.modelId}`
-    );
-    routes[dr.model] = mockRouteMetricsMulti(
-      dr.model,
-      endpointKeys,
-      prev
-    );
-  }
-
   return { routes };
 }
 

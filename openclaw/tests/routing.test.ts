@@ -2,14 +2,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   refreshRoutes,
   registerModelInterceptor,
-  resolveDynamicRoute,
   scoreEndpoint,
   selectBestEndpoint,
 } from "../src/routing.js";
 import type {
   BitrouterState,
   BitrouterPluginConfig,
-  DynamicRoute,
   EndpointMetrics,
   MetricsResponse,
   OpenClawPluginApi,
@@ -28,8 +26,8 @@ function createMockState(overrides?: Partial<BitrouterState>): BitrouterState {
     knownRoutes: [],
     healthCheckTimer: null,
     homeDir: "/tmp/bitrouter-test",
-    dynamicRoutes: new Map(),
     metrics: null,
+    authToken: null,
     ...overrides,
   };
 }
@@ -214,125 +212,6 @@ describe("registerModelInterceptor", () => {
       providerOverride: "bitrouter",
       modelOverride: "anything-at-all",
     });
-  });
-
-  it("dynamic route takes priority over static route with same name", () => {
-    const api = createMockApi("fast");
-    const state = createMockState({
-      knownRoutes: [
-        { model: "fast", provider: "openai", protocol: "openai" },
-      ],
-    });
-    state.dynamicRoutes.set("fast", {
-      model: "fast",
-      strategy: "priority",
-      endpoints: [{ provider: "anthropic", modelId: "claude-sonnet" }],
-      rrCounter: 0,
-      createdAt: "2026-01-01T00:00:00.000Z",
-    });
-    const config: BitrouterPluginConfig = { interceptAllModels: false };
-    registerModelInterceptor(api, config, state);
-
-    const handler = extractHookHandler(api);
-    const result = handler({ prompt: "test" }, { agentId: "main" });
-
-    // Should use the dynamic route's resolved provider:modelId
-    expect(result).toEqual({
-      providerOverride: "bitrouter",
-      modelOverride: "anthropic:claude-sonnet",
-    });
-  });
-
-  it("deleting dynamic route restores static resolution", () => {
-    const api = createMockApi("fast");
-    const state = createMockState({
-      knownRoutes: [
-        { model: "fast", provider: "openai", protocol: "openai" },
-      ],
-    });
-    state.dynamicRoutes.set("fast", {
-      model: "fast",
-      strategy: "priority",
-      endpoints: [{ provider: "anthropic", modelId: "claude-sonnet" }],
-      rrCounter: 0,
-      createdAt: "2026-01-01T00:00:00.000Z",
-    });
-    const config: BitrouterPluginConfig = { interceptAllModels: false };
-    registerModelInterceptor(api, config, state);
-
-    // Delete the dynamic route
-    state.dynamicRoutes.delete("fast");
-
-    const handler = extractHookHandler(api);
-    const result = handler({ prompt: "test" }, { agentId: "main" });
-
-    // Should fall back to static route resolution
-    expect(result).toEqual({
-      providerOverride: "bitrouter",
-      modelOverride: "fast",
-    });
-  });
-});
-
-// ── resolveDynamicRoute ──────────────────────────────────────────────
-
-describe("resolveDynamicRoute", () => {
-  it("returns null for unknown model", () => {
-    const state = createMockState();
-    expect(resolveDynamicRoute(state, "unknown")).toBeNull();
-  });
-
-  it("returns first endpoint for priority strategy", () => {
-    const state = createMockState();
-    state.dynamicRoutes.set("fast", {
-      model: "fast",
-      strategy: "priority",
-      endpoints: [
-        { provider: "openai", modelId: "gpt-4o" },
-        { provider: "anthropic", modelId: "claude-sonnet" },
-      ],
-      rrCounter: 0,
-      createdAt: "2026-01-01T00:00:00.000Z",
-    });
-
-    // Always returns the first endpoint
-    expect(resolveDynamicRoute(state, "fast")).toBe("openai:gpt-4o");
-    expect(resolveDynamicRoute(state, "fast")).toBe("openai:gpt-4o");
-    expect(resolveDynamicRoute(state, "fast")).toBe("openai:gpt-4o");
-  });
-
-  it("round-robins for load_balance strategy", () => {
-    const state = createMockState();
-    state.dynamicRoutes.set("balanced", {
-      model: "balanced",
-      strategy: "load_balance",
-      endpoints: [
-        { provider: "openai", modelId: "gpt-4o" },
-        { provider: "anthropic", modelId: "claude-sonnet" },
-        { provider: "google", modelId: "gemini-pro" },
-      ],
-      rrCounter: 0,
-      createdAt: "2026-01-01T00:00:00.000Z",
-    });
-
-    expect(resolveDynamicRoute(state, "balanced")).toBe("openai:gpt-4o");
-    expect(resolveDynamicRoute(state, "balanced")).toBe("anthropic:claude-sonnet");
-    expect(resolveDynamicRoute(state, "balanced")).toBe("google:gemini-pro");
-    // Wraps around
-    expect(resolveDynamicRoute(state, "balanced")).toBe("openai:gpt-4o");
-  });
-
-  it("returns null for route with empty endpoints", () => {
-    const state = createMockState();
-    state.dynamicRoutes.set("empty", {
-      model: "empty",
-      strategy: "priority",
-      endpoints: [],
-      rrCounter: 0,
-      createdAt: "2026-01-01T00:00:00.000Z",
-    });
-
-    expect(resolveDynamicRoute(state, "empty")).toBeNull();
   });
 });
 
