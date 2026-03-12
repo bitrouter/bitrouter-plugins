@@ -211,13 +211,12 @@ export function registerModelInterceptor(
   state: BitrouterState
 ): void {
   // interceptAll logic:
-  // - When mode is "byok" or "cloud", routing works by redirecting the
-  //   existing provider's baseUrl through BitRouter (set via configPatch
-  //   in setup.ts). The before_model_resolve hook is NOT needed for this
-  //   path — OpenClaw sends to openrouter but hits BitRouter's URL.
-  // - interceptAllModels: true can still be explicitly set to force all
-  //   requests through the "bitrouter" provider override (advanced usage).
-  // - Default: false (transparent URL-redirect is enough).
+  // - When interceptAllModels is true (or mode is "auto"), ALL model requests
+  //   are redirected to the "bitrouter" provider.
+  // - When interceptAllModels is false (default), only models with a known
+  //   route in BitRouter's routing table are intercepted.
+  // In both cases, the "bitrouter" provider in openclaw.json (baseUrl +
+  // JWT credential) handles the actual HTTP request.
   const interceptAll = config.interceptAllModels ?? DEFAULTS.interceptAllModels;
 
   api.on(
@@ -232,7 +231,7 @@ export function registerModelInterceptor(
       const modelName = resolveModelName(api, ctx.agentId ?? "main");
       if (interceptAll) {
         // In auto mode, preserve the provider prefix so BitRouter can
-        // route to the correct upstream via direct routing format
+        // route to the correct upstream via its direct routing format
         // (e.g. "openai/gpt-4o" → "openai:gpt-4o").
         if (config.mode === "auto") {
           const fullModel = resolveFullModelString(api, ctx.agentId ?? "main");

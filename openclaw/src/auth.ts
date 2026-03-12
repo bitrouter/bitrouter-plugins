@@ -172,10 +172,14 @@ export function mintJwt(
 // ── High-level API ────────────────────────────────────────────────────
 
 /**
- * Ensure a keypair exists and mint an API-scope JWT.
+ * Ensure a keypair exists and return a stable API-scope JWT.
  *
- * Idempotent: reuses an existing keypair if present, only re-mints the JWT.
- * The JWT has no expiration — it's scoped to the local BitRouter instance.
+ * Idempotent: reuses an existing keypair and cached token if present.
+ * The JWT has no iat/exp — the same token is valid for the lifetime of
+ * the keypair. This lets OpenClaw store it as a provider credential once
+ * and use it across gateway restarts without re-minting.
+ *
+ * The token is cached at <homeDir>/.keys/<prefix>/tokens/plugin.jwt.
  *
  * @returns The JWT string for authenticating with BitRouter.
  */
@@ -187,11 +191,27 @@ export function ensureAuth(homeDir: string): string {
     saveKeypair(homeDir, keypair.publicKey, keypair.privateKey);
   }
 
+  // Try to reuse a previously minted token — same keypair, same token.
+  const activePath = path.join(homeDir, ".keys", "active");
+  const activePrefix = fs.readFileSync(activePath, "utf-8").trim();
+  const tokenPath = path.join(homeDir, ".keys", activePrefix, "tokens", "plugin.jwt");
+
+  try {
+    const cached = fs.readFileSync(tokenPath, "utf-8").trim();
+    if (cached) return cached;
+  } catch {
+    // No cached token — mint a fresh one below.
+  }
+
+  // Mint a stable JWT: no iat, no exp. Valid for the lifetime of the keypair.
   const jwt = mintJwt(keypair.privateKey, keypair.publicKey, {
+    iss: base64urlEncode(keypair.publicKey),
     scope: "api",
-    iss: "openclaw-plugin",
-    sub: "bitrouter",
   });
+
+  // Cache it for future restarts.
+  fs.mkdirSync(path.dirname(tokenPath), { recursive: true });
+  fs.writeFileSync(tokenPath, jwt + "\n", "utf-8");
 
   return jwt;
 }

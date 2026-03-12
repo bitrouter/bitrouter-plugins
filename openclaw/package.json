@@ -11,7 +11,8 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run copy-assets",
+    "copy-assets": "cp -r src/skills dist/ && cp openclaw.plugin.json dist/",
     "dev": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -32,10 +33,7 @@
     "node": ">=18"
   },
   "openclaw": {
-    "id": "bitrouter",
-    "extensions": [
-      "./dist/openclaw-adapter.js"
-    ]
+    "id": "bitrouter"
   },
   "license": "MIT",
   "repository": {

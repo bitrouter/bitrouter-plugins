@@ -22,10 +22,13 @@ import { checkHealth, waitForReady } from "../src/health.js";
 import { refreshRoutes, registerModelInterceptor } from "../src/routing.js";
 import { generateConfig } from "../src/config.js";
 import { activate } from "../src/index.js";
+import { ensureAuth } from "../src/auth.js";
+import * as os from "node:os";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
 const BITROUTER_URL = "http://127.0.0.1:8787";
+const HOME_DIR = os.homedir();
 
 /** Check if BitRouter is actually running before tests. */
 async function isBitrouterRunning(): Promise<boolean> {
@@ -370,9 +373,14 @@ describe("Integration: plugin against live BitRouter", () => {
     it("sends a chat completion through BitRouter and gets a response", async () => {
       if (!running) return;
 
+      const jwt = ensureAuth(HOME_DIR);
+
       const res = await fetch(`${BITROUTER_URL}/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${jwt}`,
+        },
         body: JSON.stringify({
           model: "default",
           max_tokens: 20,

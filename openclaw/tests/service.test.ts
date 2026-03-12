@@ -41,6 +41,14 @@ vi.mock("../src/metrics.js", () => ({
   refreshMetrics: vi.fn(() => Promise.resolve()),
 }));
 
+vi.mock("../src/auth.js", () => ({
+  ensureAuth: vi.fn(() => "mock-jwt-token"),
+}));
+
+vi.mock("../src/auto-detect.js", () => ({
+  buildAutoProviderConfig: vi.fn(() => ({ providers: {}, models: {} })),
+}));
+
 import { spawn } from "node:child_process";
 import { resolveBinaryPath } from "../src/binary.js";
 import { registerBitrouterService } from "../src/service.js";
@@ -139,7 +147,7 @@ describe("registerBitrouterService", () => {
     expect(resolveBinaryPath).toHaveBeenCalledWith(mockCtx.stateDir);
     expect(spawn).toHaveBeenCalledWith(
       "/usr/local/bin/bitrouter",
-      ["--home-dir", expect.any(String), "--db", "", "serve"],
+      ["--home-dir", expect.any(String), "serve"],
       expect.objectContaining({
         stdio: ["ignore", "pipe", "pipe"],
         detached: false,
