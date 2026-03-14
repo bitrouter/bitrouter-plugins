@@ -61,13 +61,13 @@ export function registerBitrouterService(
       writeConfigToDir(effectiveConfig, state.homeDir);
       api.logger.info(`Config written to ${state.homeDir}`);
 
-      // Generate/load Ed25519 keypair and mint JWTs for authenticating
-      // with the local BitRouter instance (API + admin scopes).
+      // Generate/load keypair and mint JWTs for authenticating with
+      // the local BitRouter instance (API + admin scopes).
       try {
-        const tokens = ensureAuth(state.homeDir);
+        const tokens = ensureAuth(state.homeDir, config.chain);
         state.apiToken = tokens.apiToken;
         state.adminToken = tokens.adminToken;
-        api.logger.info("Auth keypair ready");
+        api.logger.info(`Auth keypair ready (${config.chain ?? "solana"})`);
       } catch (err) {
         api.logger.warn(`Failed to generate auth tokens: ${err}`);
       }

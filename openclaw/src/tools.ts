@@ -2,7 +2,7 @@
  * Agent tools — HTTP-based wrappers around BitRouter's API endpoints
  * plus CLI wrappers for local crypto operations.
  *
- * v0.6.1: status/account tools use HTTP endpoints instead of CLI.
+ * v0.7: status/account tools use HTTP endpoints instead of CLI.
  * New admin route management tools (add/remove/list routes).
  */
 

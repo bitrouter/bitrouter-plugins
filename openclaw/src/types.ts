@@ -9,6 +9,16 @@
 
 import type { ChildProcess } from "node:child_process";
 
+// ── Chain type ───────────────────────────────────────────────────────
+
+/**
+ * Which blockchain identity to use for JWT auth with the local BitRouter.
+ *
+ * "solana" — Ed25519 signing (SOL_EDDSA JWT). Default, backward-compatible.
+ * "evm"    — secp256k1 / EIP-191 signing (EIP191K JWT). Uses Base (chain 8453).
+ */
+export type ChainType = "solana" | "evm";
+
 // ── Setup mode ───────────────────────────────────────────────────────
 
 /**
@@ -48,6 +58,8 @@ export interface BitrouterPluginConfig {
   mode?: SetupMode;
   /** BYOK upstream provider config. Set when mode === "byok". */
   byok?: BitrouterByokConfig;
+  /** Blockchain identity for JWT auth. Defaults to "solana". */
+  chain?: ChainType;
 }
 
 /** A single provider entry in the plugin config (camelCase, TS-side). */

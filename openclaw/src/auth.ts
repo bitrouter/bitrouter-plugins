@@ -1,38 +1,49 @@
 /**
- * Ed25519 keypair generation and JWT minting for BitRouter auth.
+ * Multi-chain keypair generation and JWT minting for BitRouter auth.
  *
- * BitRouter v0.6.1 switched to a "web3" keypair format (Solana-compatible
- * Ed25519) and SOL_EDDSA JWT signing.
+ * Supports two signing schemes (matching bitrouter-core v0.7):
  *
- * Key format (bitrouter v0.6.1):
- *   master.json: { "algorithm": "web3", "seed": "<base64url(32-byte seed)>" }
- *   The 32-byte seed is used directly with Node.js Ed25519 (PKCS8 DER wrapping).
- *   The public key is base58-encoded to form the Solana address.
+ *   Solana (SOL_EDDSA):
+ *     - Ed25519 signing over raw message bytes.
+ *     - Public key encoded as base58 (Solana address).
+ *     - master.json: { algorithm: "web3", seed: "<base64url(32-byte seed)>" }
+ *     - JWT iss: "solana:<chain-id>:<base58-pubkey>"
  *
- * JWT format (bitrouter v0.6.1):
- *   header: { alg: "SOL_EDDSA", typ: "JWT" }
- *   claims: { iss: "solana:<chain-id>:<base58-pubkey>", chain: "solana:<chain-id>", scope, ... }
- *   signature: Ed25519 over "base64url(header).base64url(claims)"
+ *   EVM (EIP191K):
+ *     - secp256k1 ECDSA with EIP-191 message prefix.
+ *     - Address is checksummed 0x-prefixed hex (last 20 bytes of keccak256(pubkey)).
+ *     - master.json: { algorithm: "evm", seed: "<base64url(32-byte seed)>" }
+ *     - JWT iss: "eip155:<chain-id>:<0x-address>"
  *
- * Solana mainnet chain ID: 5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp
+ * Default chain IDs:
+ *   Solana mainnet: 5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp
+ *   EVM (Base):     8453
  */
 
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+import { secp256k1 } from "@noble/curves/secp256k1";
+import { keccak_256 } from "@noble/hashes/sha3";
+
+import type { ChainType } from "./types.js";
+
 // ── Constants ─────────────────────────────────────────────────────────
 
-/** Solana mainnet genesis hash (chain identifier used in JWT iss). */
+/** Solana mainnet genesis hash prefix. */
 const SOLANA_CHAIN_ID = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
+
+/** Base L2 chain ID (default EVM chain). */
+const EVM_CHAIN_ID = "8453";
 
 /** PKCS8 DER prefix for a bare Ed25519 private key seed (RFC 8410). */
 const PKCS8_ED25519_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
 
 // ── Base64url helpers ─────────────────────────────────────────────────
 
-function base64urlEncode(buf: Buffer): string {
-  return buf.toString("base64url");
+function base64urlEncode(buf: Buffer | Uint8Array): string {
+  return Buffer.from(buf).toString("base64url");
 }
 
 function base64urlDecode(str: string): Buffer {
@@ -57,27 +68,34 @@ function base58Encode(buf: Buffer): string {
   return out;
 }
 
+// ── EIP-55 checksummed address ────────────────────────────────────────
+
+function toChecksumAddress(address: Uint8Array): string {
+  const hex = Buffer.from(address).toString("hex");
+  const hash = Buffer.from(keccak_256(Buffer.from(hex, "ascii"))).toString("hex");
+  let checksummed = "0x";
+  for (let i = 0; i < hex.length; i++) {
+    checksummed += parseInt(hash[i], 16) >= 8 ? hex[i].toUpperCase() : hex[i];
+  }
+  return checksummed;
+}
+
 // ── Keypair types ─────────────────────────────────────────────────────
 
-export interface Ed25519Keypair {
-  /** Raw 32-byte seed (used to derive the private key). */
+export interface Keypair {
+  /** Which chain this keypair is for. */
+  chain: ChainType;
+  /** Raw 32-byte seed / private key. */
   seed: Buffer;
-  /** Raw 32-byte public key. */
+  /** Raw public key bytes (32 bytes for Ed25519, 33 bytes compressed for secp256k1). */
   publicKey: Buffer;
-  /** Solana base58-encoded public key address. */
+  /** On-chain address (base58 for Solana, checksummed 0x-hex for EVM). */
   address: string;
 }
 
-// ── Keypair derivation ────────────────────────────────────────────────
+// ── Solana keypair derivation ─────────────────────────────────────────
 
-/**
- * Derive the Ed25519 public key and Solana address from a 32-byte seed.
- *
- * Node.js crypto requires PKCS8 DER wrapping to create an Ed25519 key
- * from raw bytes. The resulting public key bytes are then base58-encoded
- * to produce the Solana address.
- */
-function derivePublicKey(seed: Buffer): { publicKey: Buffer; address: string } {
+function deriveSolanaPublicKey(seed: Buffer): { publicKey: Buffer; address: string } {
   const pkcs8Der = Buffer.concat([PKCS8_ED25519_PREFIX, seed]);
   const privKey = crypto.createPrivateKey({ key: pkcs8Der, format: "der", type: "pkcs8" });
   const pubKeyObj = crypto.createPublicKey(privKey);
@@ -86,13 +104,35 @@ function derivePublicKey(seed: Buffer): { publicKey: Buffer; address: string } {
   return { publicKey, address: base58Encode(publicKey) };
 }
 
+// ── EVM keypair derivation ────────────────────────────────────────────
+
+function deriveEvmPublicKey(seed: Buffer): { publicKey: Buffer; address: string } {
+  // Uncompressed public key (65 bytes: 0x04 || x || y).
+  const uncompressed = secp256k1.getPublicKey(seed, false);
+  // keccak256 of the 64-byte public key (skip the 0x04 prefix).
+  const hash = keccak_256(uncompressed.subarray(1));
+  // Last 20 bytes = Ethereum address.
+  const addressBytes = hash.subarray(hash.length - 20);
+  const address = toChecksumAddress(addressBytes);
+  // Store compressed public key (33 bytes) for space efficiency.
+  const compressed = secp256k1.getPublicKey(seed, true);
+  return { publicKey: Buffer.from(compressed), address };
+}
+
+// ── Keypair generation ────────────────────────────────────────────────
+
 /**
- * Generate a new Ed25519 keypair in BitRouter v0.6.1 web3 format.
+ * Generate a new keypair for the given chain.
+ * Defaults to Solana for backward compatibility.
  */
-export function generateKeypair(): Ed25519Keypair {
+export function generateKeypair(chain: ChainType = "solana"): Keypair {
   const seed = crypto.randomBytes(32);
-  const { publicKey, address } = derivePublicKey(seed);
-  return { seed, publicKey, address };
+  if (chain === "evm") {
+    const { publicKey, address } = deriveEvmPublicKey(seed);
+    return { chain, seed, publicKey, address };
+  }
+  const { publicKey, address } = deriveSolanaPublicKey(seed);
+  return { chain, seed, publicKey, address };
 }
 
 // ── Keypair persistence ───────────────────────────────────────────────
@@ -101,20 +141,19 @@ export function generateKeypair(): Ed25519Keypair {
 const KEY_PREFIX = "openclaw";
 
 /**
- * Save a keypair to BitRouter's v0.6.1 key directory format.
+ * Save a keypair to BitRouter's key directory.
  *
  * Writes:
- *   <homeDir>/.keys/<prefix>/master.json — { algorithm: "web3", seed: "<base64url>" }
- *   <homeDir>/.keys/active              — the active key prefix
+ *   <homeDir>/.keys/<prefix>/master.json
+ *   <homeDir>/.keys/active
  */
-export function saveKeypair(homeDir: string, keypair: Ed25519Keypair): void {
+export function saveKeypair(homeDir: string, keypair: Keypair): void {
   const keysDir = path.join(homeDir, ".keys", KEY_PREFIX);
   fs.mkdirSync(keysDir, { recursive: true });
 
-  const masterJson = {
-    algorithm: "web3",
-    seed: base64urlEncode(keypair.seed),
-  };
+  const masterJson = keypair.chain === "evm"
+    ? { algorithm: "evm", seed: base64urlEncode(keypair.seed) }
+    : { algorithm: "web3", seed: base64urlEncode(keypair.seed) };
 
   fs.writeFileSync(
     path.join(keysDir, "master.json"),
@@ -132,10 +171,14 @@ export function saveKeypair(homeDir: string, keypair: Ed25519Keypair): void {
 /**
  * Load an existing keypair from BitRouter's key directory.
  *
- * Supports both v0.6.1 "web3" format and legacy v0.4.x "eddsa" format.
+ * Supports:
+ *   - "web3" format (Solana Ed25519, v0.5+)
+ *   - "evm" format (secp256k1, v0.7+)
+ *   - Legacy "eddsa" format (v0.4.x)
+ *
  * Returns null if no valid keypair is found.
  */
-export function loadKeypair(homeDir: string): Ed25519Keypair | null {
+export function loadKeypair(homeDir: string): Keypair | null {
   try {
     const activePath = path.join(homeDir, ".keys", "active");
     const prefix = fs.readFileSync(activePath, "utf-8").trim();
@@ -148,22 +191,29 @@ export function loadKeypair(homeDir: string): Ed25519Keypair | null {
     };
 
     let seed: Buffer;
+    let chain: ChainType;
 
-    if (masterJson.algorithm === "web3" && masterJson.seed) {
-      // v0.6.1 format: 32-byte seed, base64url-encoded.
+    if (masterJson.algorithm === "evm" && masterJson.seed) {
       seed = base64urlDecode(masterJson.seed);
       if (seed.length !== 32) return null;
+      chain = "evm";
+    } else if (masterJson.algorithm === "web3" && masterJson.seed) {
+      seed = base64urlDecode(masterJson.seed);
+      if (seed.length !== 32) return null;
+      chain = "solana";
     } else if (masterJson.algorithm === "eddsa" && masterJson.secret_key) {
       // Legacy v0.4.x format: 64-byte seed+pubkey, first 32 bytes = seed.
       const secretKey = base64urlDecode(masterJson.secret_key);
       if (secretKey.length !== 64) return null;
       seed = Buffer.from(secretKey.subarray(0, 32));
+      chain = "solana";
     } else {
       return null;
     }
 
-    const { publicKey, address } = derivePublicKey(seed);
-    return { seed, publicKey, address };
+    const derive = chain === "evm" ? deriveEvmPublicKey : deriveSolanaPublicKey;
+    const { publicKey, address } = derive(seed);
+    return { chain, seed, publicKey, address };
   } catch {
     return null;
   }
@@ -172,13 +222,24 @@ export function loadKeypair(homeDir: string): Ed25519Keypair | null {
 // ── JWT minting ───────────────────────────────────────────────────────
 
 /**
- * Mint a SOL_EDDSA JWT for BitRouter v0.6.1.
+ * Mint a JWT for the given keypair.
  *
- * Header: { alg: "SOL_EDDSA", typ: "JWT" }
- * Claims: { iss: "solana:<chain>:<address>", chain: "solana:<chain>", ...extra }
+ * Automatically selects the signing algorithm based on keypair.chain:
+ *   - Solana: SOL_EDDSA (Ed25519 over raw message bytes)
+ *   - EVM:    EIP191K (EIP-191 prefixed secp256k1 ECDSA)
  */
 export function mintJwt(
-  keypair: Ed25519Keypair,
+  keypair: Keypair,
+  claims: Record<string, unknown>
+): string {
+  if (keypair.chain === "evm") {
+    return mintEvmJwt(keypair, claims);
+  }
+  return mintSolanaJwt(keypair, claims);
+}
+
+function mintSolanaJwt(
+  keypair: Keypair,
   claims: Record<string, unknown>
 ): string {
   const header = { alg: "SOL_EDDSA", typ: "JWT" };
@@ -196,6 +257,39 @@ export function mintJwt(
   const pkcs8Der = Buffer.concat([PKCS8_ED25519_PREFIX, keypair.seed]);
   const keyObject = crypto.createPrivateKey({ key: pkcs8Der, format: "der", type: "pkcs8" });
   const signature = crypto.sign(null, Buffer.from(signingInput), keyObject);
+
+  return `${signingInput}.${base64urlEncode(signature)}`;
+}
+
+function mintEvmJwt(
+  keypair: Keypair,
+  claims: Record<string, unknown>
+): string {
+  const header = { alg: "EIP191K", typ: "JWT" };
+
+  const fullClaims = {
+    iss: `eip155:${EVM_CHAIN_ID}:${keypair.address}`,
+    chain: `eip155:${EVM_CHAIN_ID}`,
+    ...claims,
+  };
+
+  const headerB64 = base64urlEncode(Buffer.from(JSON.stringify(header)));
+  const claimsB64 = base64urlEncode(Buffer.from(JSON.stringify(fullClaims)));
+  const signingInput = `${headerB64}.${claimsB64}`;
+
+  // EIP-191 personal sign: prefix the message, then keccak256, then secp256k1 sign.
+  const messageBytes = Buffer.from(signingInput);
+  const prefix = Buffer.from(`\x19Ethereum Signed Message:\n${messageBytes.length}`);
+  const prefixedMessage = Buffer.concat([prefix, messageBytes]);
+  const messageHash = keccak_256(prefixedMessage);
+
+  const sig = secp256k1.sign(messageHash, keypair.seed);
+  // Signature format: r (32 bytes) || s (32 bytes) || v (1 byte).
+  // v = recovery param + 27 (Ethereum convention).
+  const r = Buffer.from(sig.toCompactRawBytes().subarray(0, 32));
+  const s = Buffer.from(sig.toCompactRawBytes().subarray(32, 64));
+  const v = Buffer.from([sig.recovery + 27]);
+  const signature = Buffer.concat([r, s, v]);
 
   return `${signingInput}.${base64urlEncode(signature)}`;
 }
@@ -221,41 +315,37 @@ function decodeExp(jwt: string): number | null {
 
 /**
  * Ensure a keypair exists in the homeDir and return both API-scope
- * and admin-scope JWTs signed with SOL_EDDSA (BitRouter v0.6.1).
+ * and admin-scope JWTs.
  *
- * If a v0.6.1-format keypair ("web3") already exists it is reused.
- * If only a legacy v0.4.x keypair ("eddsa") is found, a new v0.6.1
- * keypair is generated and saved (the legacy one is left in place).
+ * If the requested chain doesn't match the stored keypair's chain,
+ * a new keypair is generated for the requested chain.
  *
  * API token:   scope "api",   no expiry, cached at tokens/plugin.jwt.
  * Admin token: scope "admin", 24h expiry, cached at tokens/admin.jwt,
  *              re-minted when within 1h of expiry.
  */
-export function ensureAuth(homeDir: string): { apiToken: string; adminToken: string } {
+export function ensureAuth(
+  homeDir: string,
+  chain: ChainType = "solana"
+): { apiToken: string; adminToken: string } {
   let keypair = loadKeypair(homeDir);
 
-  // Regenerate if missing or if we loaded a legacy keypair (algorithm mismatch).
-  const masterPath = (() => {
+  // Regenerate if missing, legacy format, or chain mismatch.
+  const needsRegen = !keypair || keypair.chain !== chain || (() => {
     try {
-      const prefix = fs.readFileSync(path.join(homeDir, ".keys", "active"), "utf-8").trim();
-      return path.join(homeDir, ".keys", prefix, "master.json");
-    } catch {
-      return null;
-    }
-  })();
-
-  const isLegacy = (() => {
-    if (!masterPath) return false;
-    try {
+      const activePath = path.join(homeDir, ".keys", "active");
+      const prefix = fs.readFileSync(activePath, "utf-8").trim();
+      const masterPath = path.join(homeDir, ".keys", prefix, "master.json");
       const m = JSON.parse(fs.readFileSync(masterPath, "utf-8")) as { algorithm?: string };
-      return m.algorithm !== "web3";
+      // Legacy "eddsa" format should be regenerated.
+      return m.algorithm === "eddsa";
     } catch {
       return false;
     }
   })();
 
-  if (!keypair || isLegacy) {
-    keypair = generateKeypair();
+  if (needsRegen) {
+    keypair = generateKeypair(chain);
     saveKeypair(homeDir, keypair);
   }
 
@@ -267,15 +357,18 @@ export function ensureAuth(homeDir: string): { apiToken: string; adminToken: str
   const apiTokenPath = path.join(tokensDir, "plugin.jwt");
   let apiToken: string | undefined;
 
+  // Only reuse cached token if chain matches (check the alg in the header).
   try {
     const cached = fs.readFileSync(apiTokenPath, "utf-8").trim();
-    if (cached) apiToken = cached;
+    if (cached && isTokenForChain(cached, chain)) {
+      apiToken = cached;
+    }
   } catch {
     // No cached token — mint below.
   }
 
   if (!apiToken) {
-    apiToken = mintJwt(keypair, { scope: "api" });
+    apiToken = mintJwt(keypair!, { scope: "api" });
     fs.mkdirSync(path.dirname(apiTokenPath), { recursive: true });
     fs.writeFileSync(apiTokenPath, apiToken + "\n", "utf-8");
   }
@@ -286,7 +379,7 @@ export function ensureAuth(homeDir: string): { apiToken: string; adminToken: str
 
   try {
     const cached = fs.readFileSync(adminTokenPath, "utf-8").trim();
-    if (cached) {
+    if (cached && isTokenForChain(cached, chain)) {
       const exp = decodeExp(cached);
       const now = Math.floor(Date.now() / 1000);
       if (exp && exp - now > 3600) {
@@ -299,7 +392,7 @@ export function ensureAuth(homeDir: string): { apiToken: string; adminToken: str
 
   if (!adminToken) {
     const now = Math.floor(Date.now() / 1000);
-    adminToken = mintJwt(keypair, {
+    adminToken = mintJwt(keypair!, {
       scope: "admin",
       iat: now,
       exp: now + 86400,
@@ -309,4 +402,18 @@ export function ensureAuth(homeDir: string): { apiToken: string; adminToken: str
   }
 
   return { apiToken, adminToken };
+}
+
+/**
+ * Check if a JWT's algorithm matches the expected chain.
+ * Used to invalidate cached tokens when switching chains.
+ */
+function isTokenForChain(jwt: string, chain: ChainType): boolean {
+  try {
+    const header = JSON.parse(Buffer.from(jwt.split(".")[0], "base64url").toString()) as { alg?: string };
+    if (chain === "evm") return header.alg === "EIP191K";
+    return header.alg === "SOL_EDDSA";
+  } catch {
+    return false;
+  }
 }
