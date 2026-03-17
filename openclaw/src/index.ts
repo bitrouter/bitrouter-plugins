@@ -48,6 +48,7 @@ import { registerPromptContext } from "./prompt-context.js";
 import { registerHttpRoutes } from "./http-routes.js";
 import { loadOnboardingState, isOnboardingComplete, needsOnboarding } from "./onboarding.js";
 import { resolveBinaryPath } from "./binary.js";
+import { switchAll, restoreModels } from "./switch.js";
 
 /**
  * Plugin activation — called by OpenClaw when the plugin is loaded.
@@ -205,6 +206,40 @@ export function activate(api: OpenClawPluginApi): void {
 
             console.log(sections.join("\n") + "\n");
           });
+
+        // openclaw bitrouter switch-all — rewrite agent models to bitrouter/
+        prog
+          .command("bitrouter switch-all")
+          .description("Rewrite all agent model configs to route through BitRouter")
+          .action(async () => {
+            const result = await switchAll(api, config, state);
+            if (result.error) {
+              console.error(`\nError: ${result.error}\n`);
+              return;
+            }
+            console.log("\nSwitched agent models to BitRouter:");
+            for (const line of result.changes) {
+              console.log(line);
+            }
+            console.log("\nRestart the gateway to apply: openclaw gateway restart\n");
+          });
+
+        // openclaw bitrouter restore-models — restore original agent models
+        prog
+          .command("bitrouter restore-models")
+          .description("Restore agent model configs to their original values")
+          .action(async () => {
+            const result = await restoreModels(api, config);
+            if (result.error) {
+              console.error(`\nError: ${result.error}\n`);
+              return;
+            }
+            console.log("\nRestored original agent models:");
+            for (const line of result.changes) {
+              console.log(line);
+            }
+            console.log("\nRestart the gateway to apply: openclaw gateway restart\n");
+          });
       },
       { commands: ["bitrouter"] }
     );
@@ -222,7 +257,6 @@ export function activate(api: OpenClawPluginApi): void {
     if (onboarding && onboarding.status === "completed_cloud") {
       // Cloud onboarding completed — activate in cloud mode.
       config.mode = "cloud";
-      config.interceptAllModels = true;
       if (onboarding.rpc_url && !config.solanaRpcUrl) {
         config.solanaRpcUrl = onboarding.rpc_url;
       }
@@ -245,7 +279,6 @@ export function activate(api: OpenClawPluginApi): void {
     // which uses ctx.resolveApiKey for standard key resolution.
     if (!config.mode) {
       config.mode = "auto";
-      config.interceptAllModels = true;
       api.logger.info(
         "BitRouter activating in auto mode — provider detection deferred to discovery phase"
       );
@@ -264,7 +297,7 @@ export function activate(api: OpenClawPluginApi): void {
 
   // Hook into model resolution to selectively route through BitRouter.
   try {
-    registerModelInterceptor(api, config, state);
+    registerModelInterceptor(api, state);
   } catch (err) {
     api.logger.error(`Failed to register model interceptor: ${err}`);
   }
@@ -285,13 +318,12 @@ export function activate(api: OpenClawPluginApi): void {
 
   if (config.mode === "auto") {
     api.logger.info(
-      `BitRouter plugin activated in auto mode (${state.baseUrl}, interceptAll=true)`
+      `BitRouter plugin activated in auto mode (${state.baseUrl}, use 'openclaw bitrouter switch-all' to route all models)`
     );
   } else {
     const upstream = config.byok?.upstreamProvider ?? "unknown";
     api.logger.info(
-      `BitRouter plugin activated (${state.baseUrl}, mode=${config.mode}, ` +
-        `upstream=${upstream}, interceptAll=${config.interceptAllModels ?? DEFAULTS.interceptAllModels})`
+      `BitRouter plugin activated (${state.baseUrl}, mode=${config.mode}, upstream=${upstream})`
     );
   }
 }

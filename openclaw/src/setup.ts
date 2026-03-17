@@ -12,8 +12,8 @@
  *            "coming soon" message and exits without making changes.
  *
  * On success, returns a ProviderAuthResult whose `configPatch` writes
- * `mode`, `byok`, and `interceptAllModels: true` into
- * `plugins.entries.bitrouter.config` in openclaw.json — no filesystem
+ * `mode` and `byok` into `plugins.entries.bitrouter.config` in
+ * openclaw.json — no filesystem
  * hacks required.
  *
  * The API key is also written to the BitRouter home dir's .env file so
@@ -199,8 +199,9 @@ export async function byokWizard(
   const { apiToken: jwt } = ensureAuth(homeDir, chainChoice);
 
   await prompter.outro(
-    "BitRouter configured! Restart the gateway to activate routing:\n" +
-      "  openclaw gateway restart"
+    "BitRouter configured! Next steps:\n" +
+      "  1. Restart the gateway: openclaw gateway restart\n" +
+      "  2. Route all agents through BitRouter: openclaw bitrouter switch-all"
   );
 
   // Build the config patch. This gets merged into openclaw.json by OpenClaw.
@@ -211,9 +212,9 @@ export async function byokWizard(
   //    plugin knows it's configured on next gateway start.
   //
   // 2. models.providers.bitrouter — registers "bitrouter" as a provider with
-  //    baseUrl pointing to the local BitRouter instance. Combined with
-  //    interceptAllModels: true, this routes all requests through BitRouter
-  //    using providerOverride instead of URL redirect.
+  //    baseUrl pointing to the local BitRouter instance. Use
+  //    `openclaw bitrouter switch-all` to route all agent models through
+  //    BitRouter by rewriting their model configs.
   const bitrouterApiBase = `http://${DEFAULTS.host}:${DEFAULTS.port}/v1`;
 
   const configPatch = {
@@ -227,14 +228,13 @@ export async function byokWizard(
               ...(apiBase ? { apiBase } : {}),
             },
             chain: chainChoice,
-            interceptAllModels: true,
           },
         },
       },
     },
     // Register "bitrouter" as a provider pointing to the local instance.
-    // All requests are routed via providerOverride: "bitrouter" in the
-    // before_model_resolve hook (interceptAllModels: true).
+    // Use `openclaw bitrouter switch-all` to route all agent models
+    // through BitRouter.
     models: {
       mode: "merge" as const,
       providers: {

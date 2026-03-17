@@ -10,8 +10,9 @@
  * 2. When OpenClaw resolves a model, the before_model_resolve hook fires.
  *    We check if the requested model is in BitRouter's routing table.
  *
- * 3. If yes (or if interceptAllModels is true), we call event.override()
- *    to redirect the request to the "bitrouter" provider.
+ * 3. If yes, we call event.override() to redirect the request to the
+ *    "bitrouter" provider. For full routing, use `openclaw bitrouter
+ *    switch-all` which rewrites agent configs directly.
  *
  * 4. If no, we do nothing — OpenClaw resolves the model normally.
  *
@@ -20,7 +21,6 @@
  */
 
 import type {
-  BitrouterPluginConfig,
   BitrouterState,
   ModelInfo,
   OpenClawPluginApi,
@@ -29,7 +29,6 @@ import type {
   PluginHookAgentContext,
   RouteInfo,
 } from "./types.js";
-import { DEFAULTS } from "./types.js";
 
 // ── Route table refresh ──────────────────────────────────────────────
 
@@ -179,18 +178,12 @@ function resolveModelName(api: OpenClawPluginApi, agentId: string): string {
  */
 export function registerModelInterceptor(
   api: OpenClawPluginApi,
-  config: BitrouterPluginConfig,
   state: BitrouterState
 ): void {
-  // interceptAll logic:
-  // - When interceptAllModels is true (or mode is "auto"), ALL model requests
-  //   are redirected to the "bitrouter" provider.
-  // - When interceptAllModels is false (default), only models with a known
-  //   route in BitRouter's routing table are intercepted.
-  // In both cases, the "bitrouter" provider in openclaw.json (baseUrl +
-  // JWT credential) handles the actual HTTP request.
-  const interceptAll = config.interceptAllModels ?? DEFAULTS.interceptAllModels;
-
+  // Selective routing: only intercept models that have a known route in
+  // BitRouter's routing table. For full routing, use `openclaw bitrouter
+  // switch-all` which rewrites agent model configs directly with a
+  // "bitrouter/" prefix — no hook-based interception needed.
   api.on(
     "before_model_resolve",
     (
@@ -201,23 +194,8 @@ export function registerModelInterceptor(
       if (!state.healthy) return;
 
       const modelName = resolveModelName(api, ctx.agentId ?? "main");
-      if (interceptAll) {
-        // In auto mode, preserve the provider prefix so BitRouter can
-        // route to the correct upstream via its direct routing format
-        // (e.g. "openai/gpt-4o" → "openai:gpt-4o").
-        if (config.mode === "auto") {
-          const fullModel = resolveFullModelString(api, ctx.agentId ?? "main");
-          const directRoute = fullModel.includes("/")
-            ? fullModel.replace("/", ":")
-            : modelName;
-          return { providerOverride: "bitrouter", modelOverride: directRoute };
-        }
 
-        // Non-auto interceptAll: use stripped model name.
-        return { providerOverride: "bitrouter", modelOverride: modelName };
-      }
-
-      // Selective mode: only intercept models in BitRouter's routing table.
+      // Only intercept models in BitRouter's routing table.
       const isKnownRoute = state.knownRoutes.some(
         (r) => r.model === modelName
       );

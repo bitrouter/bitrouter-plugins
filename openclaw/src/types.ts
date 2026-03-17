@@ -96,7 +96,6 @@ export interface BitrouterPluginConfig {
   host?: string;
   autoStart?: boolean;
   healthCheckIntervalMs?: number;
-  interceptAllModels?: boolean;
   providers?: Record<string, ProviderEntry>;
   models?: Record<string, ModelEntry>;
   guardrails?: GuardrailPluginConfig;
@@ -110,7 +109,16 @@ export interface BitrouterPluginConfig {
   solanaRpcUrl?: string;
   /** Cloud-specific configuration. */
   cloud?: { solanaRpcUrl?: string };
+  /** Stored original model mappings, set by `openclaw bitrouter switch-all`. */
+  originalModels?: {
+    defaultModel?: AgentModelConfig;
+    agentModels?: Record<string, AgentModelConfig>;
+    switchedAt?: string;
+  };
 }
+
+/** Agent model config — mirrors the SDK's model field shape. */
+export type AgentModelConfig = string | { primary?: string; fallbacks?: string[] };
 
 /** A single provider entry in the plugin config (camelCase, TS-side). */
 export interface ProviderEntry {
@@ -376,7 +384,6 @@ export const DEFAULTS = {
   host: "127.0.0.1",
   autoStart: true,
   healthCheckIntervalMs: 30_000,
-  interceptAllModels: false,
   /** How long to wait for BitRouter to become healthy on startup. */
   startupTimeoutMs: 15_000,
   /** Interval between startup health check polls. */

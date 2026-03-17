@@ -74,7 +74,6 @@ async function byokNonInteractive(
           bitrouter: {
             config: {
               mode: "byok",
-              interceptAllModels: true,
             },
           },
         },
@@ -136,7 +135,6 @@ async function byokNonInteractive(
           bitrouter: {
             config: {
               mode: "auto",
-              interceptAllModels: true,
             },
           },
         },
@@ -165,7 +163,6 @@ async function byokNonInteractive(
               upstreamProvider: primary.name,
               ...(primary.apiBase ? { apiBase: primary.apiBase } : {}),
             },
-            interceptAllModels: true,
           },
         },
       },
