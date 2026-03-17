@@ -25,13 +25,18 @@ import type {
   OpenClawPluginServiceContext,
 } from "./types.js";
 import { DEFAULTS } from "./types.js";
-import { writeConfigToDir, resolveHomeDir, PROVIDER_API_BASES, toEnvVarKey, parseEnvFile } from "./config.js";
+import {
+  writeConfigToDir,
+  resolveHomeDir,
+  PROVIDER_API_BASES,
+  toEnvVarKey,
+  parseEnvFile,
+} from "./config.js";
 import { ensureAuth } from "./auth.js";
 import { startHealthCheck, stopHealthCheck, waitForReady } from "./health.js";
 import { refreshRoutes } from "./routing.js";
-import { refreshMetrics } from "./metrics.js";
 import { resolveBinaryPath } from "./binary.js";
-import { buildAutoProviderConfig, type DetectedProvider } from "./auto-detect.js";
+import { buildAutoProviderConfig, type DetectedProvider } from "./discovery.js";
 import { loadOnboardingState } from "./onboarding.js";
 
 // ── Service registration ─────────────────────────────────────────────
@@ -43,7 +48,7 @@ export function registerBitrouterService(
   api: OpenClawPluginApi,
   config: BitrouterPluginConfig,
   state: BitrouterState,
-  stateDirRef: { value: string }
+  stateDirRef: { value: string },
 ): void {
   api.registerService({
     id: "bitrouter",
@@ -57,7 +62,25 @@ export function registerBitrouterService(
 
       // Synthesize provider entries from stored credentials (BYOK) or
       // auto-detected env vars (auto mode).
-      const effectiveConfig = buildEffectiveConfig(config, state.homeDir, state.autoDetectedProviders);
+      //
+      // In auto mode, state.autoDetectedProviders may already be populated
+      // by discovery.run(ctx) if discovery ran before service.start().
+      // If not, fall back to a direct env scan so we can still build config.
+      let autoDetected = state.autoDetectedProviders;
+      if (
+        config.mode === "auto" &&
+        (!autoDetected || autoDetected.length === 0)
+      ) {
+        const { detectProviders } = await import("./discovery.js");
+        autoDetected = detectProviders(api);
+        state.autoDetectedProviders = autoDetected;
+      }
+
+      const effectiveConfig = buildEffectiveConfig(
+        config,
+        state.homeDir,
+        autoDetected,
+      );
 
       writeConfigToDir(effectiveConfig, state.homeDir);
       api.logger.info(`Config written to ${state.homeDir}`);
@@ -93,14 +116,10 @@ export function registerBitrouterService(
       //
       // The --home-dir flag ensures BitRouter reads our generated config
       // rather than any user-level ~/.bitrouter config.
-      const child = spawn(
-        binaryPath,
-        ["--home-dir", state.homeDir, "serve"],
-        {
-          stdio: ["ignore", "pipe", "pipe"],
-          detached: false,
-        }
-      );
+      const child = spawn(binaryPath, ["--home-dir", state.homeDir, "serve"], {
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: false,
+      });
 
       state.process = child;
 
@@ -124,7 +143,7 @@ export function registerBitrouterService(
         if (code !== null && code !== 0) {
           api.logger.error(
             `BitRouter exited with code ${code}` +
-              (signal ? ` (signal: ${signal})` : "")
+              (signal ? ` (signal: ${signal})` : ""),
           );
         }
       });
@@ -136,12 +155,12 @@ export function registerBitrouterService(
         if (state.process === null) {
           throw new Error(
             "BitRouter process exited before becoming healthy. " +
-              `Check logs in ${state.homeDir}/logs/`
+              `Check logs in ${state.homeDir}/logs/`,
           );
         }
         api.logger.warn(
           "BitRouter did not become healthy within timeout — " +
-            "continuing with health checks"
+            "continuing with health checks",
         );
       } else {
         state.healthy = true;
@@ -149,7 +168,6 @@ export function registerBitrouterService(
 
         // Load the initial routing table and metrics.
         await refreshRoutes(state, api);
-        await refreshMetrics(state, api);
       }
 
       // 5. Start periodic health checks.
@@ -197,7 +215,7 @@ export function registerBitrouterService(
 function buildEffectiveConfig(
   config: BitrouterPluginConfig,
   homeDir: string,
-  autoDetected?: DetectedProvider[]
+  autoDetected?: DetectedProvider[],
 ): BitrouterPluginConfig {
   // ── Cloud mode: delegate to Rust binary with solanaRpcUrl ──
   if (config.mode === "cloud") {
@@ -207,7 +225,11 @@ function buildEffectiveConfig(
       ...(solanaRpcUrl ? { solanaRpcUrl } : {}),
       guardrails: config.guardrails ?? {
         enabled: true,
-        upgoing: { private_keys: "redact", credentials: "warn", api_keys: "warn" },
+        upgoing: {
+          private_keys: "redact",
+          credentials: "warn",
+          api_keys: "warn",
+        },
         downgoing: { suspicious_commands: "warn" },
       },
     };
@@ -219,7 +241,11 @@ function buildEffectiveConfig(
       ...config,
       guardrails: {
         enabled: true,
-        upgoing: { private_keys: "redact", credentials: "warn", api_keys: "warn" },
+        upgoing: {
+          private_keys: "redact",
+          credentials: "warn",
+          api_keys: "warn",
+        },
         downgoing: { suspicious_commands: "warn" },
       },
     };
@@ -297,7 +323,7 @@ function buildEffectiveConfig(
  * we must supply `api_base` explicitly for non-OpenAI providers.
  */
 function resolveProviderApiBase(
-  provider: string
+  provider: string,
 ): { apiBase: string } | Record<string, never> {
   // OpenAI uses the default baked into BitRouter — no override needed.
   if (provider === "openai") return {};
@@ -316,8 +342,14 @@ function resolveProviderApiBase(
  * (e.g. OpenRouter accepts "auto" as a valid model identifier).
  */
 function buildDefaultModelRoutes(
-  upstreamProvider: string
-): Record<string, { strategy: "priority"; endpoints: Array<{ provider: string; modelId: string }> }> {
+  upstreamProvider: string,
+): Record<
+  string,
+  {
+    strategy: "priority";
+    endpoints: Array<{ provider: string; modelId: string }>;
+  }
+> {
   // Virtual names that map to the provider's default model.
   //
   // For OpenRouter, avoid "auto" — it currently resolves to reasoning models
@@ -336,7 +368,13 @@ function buildDefaultModelRoutes(
   // Cover the common names OpenClaw might send:
   const virtualNames = ["auto", "default", `${upstreamProvider}/auto`];
 
-  const routes: Record<string, { strategy: "priority"; endpoints: Array<{ provider: string; modelId: string }> }> = {};
+  const routes: Record<
+    string,
+    {
+      strategy: "priority";
+      endpoints: Array<{ provider: string; modelId: string }>;
+    }
+  > = {};
   for (const name of virtualNames) {
     routes[name] = {
       strategy: "priority",

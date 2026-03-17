@@ -14,6 +14,7 @@ function createMockState(overrides?: Partial<BitrouterState>): BitrouterState {
     healthy: true,
     baseUrl: "http://127.0.0.1:8787",
     knownRoutes: [],
+    knownModels: [],
     healthCheckTimer: null,
     homeDir: "/tmp/bitrouter-test",
     metrics: null,

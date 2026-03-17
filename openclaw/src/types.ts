@@ -151,6 +151,37 @@ export interface HealthStatus {
   status: "ok" | "error";
 }
 
+/**
+ * A model entry from GET /v1/models (OpenAI-compatible format).
+ *
+ * BitRouter may include extended fields beyond the OpenAI spec
+ * (context_window, max_tokens, capabilities). Unknown fields are
+ * preserved via the index signature.
+ */
+export interface ModelInfo {
+  /** Model ID (e.g. "gpt-4o", "claude-sonnet-4-20250514"). */
+  id: string;
+  /** Object type — always "model" in OpenAI format. */
+  object?: string;
+  /** Creation timestamp. */
+  created?: number;
+  /** Owner/provider identifier. */
+  owned_by?: string;
+
+  // ── BitRouter extended fields ──────────────────────────────────────
+  /** Context window size in tokens. */
+  context_window?: number;
+  /** Maximum output tokens. */
+  max_tokens?: number;
+  /** Whether the model supports reasoning/chain-of-thought. */
+  reasoning?: boolean;
+  /** Supported input modalities. */
+  input?: Array<"text" | "image">;
+
+  /** Catch-all for additional fields BitRouter may add. */
+  [key: string]: unknown;
+}
+
 // ── Metrics types ───────────────────────────────────────────────────
 
 /** Per-endpoint performance metrics. */
@@ -219,14 +250,6 @@ export interface AdminRouteEndpoint {
   model_id: string;
 }
 
-// ── Tool result type ─────────────────────────────────────────────────
-
-/** Standard tool result returned from agent tool execute functions. */
-export interface ToolResult {
-  content: Array<{ type: "text"; text: string }>;
-  isError?: boolean;
-}
-
 // ── Plugin runtime state ─────────────────────────────────────────────
 
 /**
@@ -245,6 +268,8 @@ export interface BitrouterState {
   baseUrl: string;
   /** Cached routing table from GET /v1/routes. */
   knownRoutes: RouteInfo[];
+  /** Cached model catalog from GET /v1/models. */
+  knownModels: ModelInfo[];
   /** Handle for the periodic health check interval. */
   healthCheckTimer: ReturnType<typeof setInterval> | null;
   /** Absolute path to the generated BitRouter home directory. */
@@ -256,7 +281,7 @@ export interface BitrouterState {
   /** JWT token for admin-scope requests (24h expiry, auto-refreshed). */
   adminToken: string | null;
   /** Providers detected via env var sniffing in auto mode. */
-  autoDetectedProviders?: import("./auto-detect.js").DetectedProvider[];
+  autoDetectedProviders?: import("./discovery.js").DetectedProvider[];
   /** Onboarding state loaded from onboarding.json (null if not present). */
   onboardingState: OnboardingState | null;
 }
@@ -276,8 +301,6 @@ export type {
   PluginLogger,
   ProviderAuthContext,
   ProviderAuthResult,
-  AnyAgentTool,
-  GatewayRequestHandlerOptions,
 } from "openclaw/plugin-sdk";
 
 // ── SDK types for provider discovery & non-interactive auth ──────────

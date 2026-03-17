@@ -122,10 +122,13 @@ describe("Integration: plugin against live BitRouter", () => {
         healthy: false,
         baseUrl: BITROUTER_URL,
         knownRoutes: [],
+        knownModels: [],
         healthCheckTimer: null,
         homeDir: "/tmp/test",
-        dynamicRoutes: new Map(),
         metrics: null,
+        apiToken: null,
+        adminToken: null,
+        onboardingState: null,
       };
 
       const result = await checkHealth(state);
@@ -140,10 +143,13 @@ describe("Integration: plugin against live BitRouter", () => {
         healthy: false,
         baseUrl: BITROUTER_URL,
         knownRoutes: [],
+        knownModels: [],
         healthCheckTimer: null,
         homeDir: "/tmp/test",
-        dynamicRoutes: new Map(),
         metrics: null,
+        apiToken: null,
+        adminToken: null,
+        onboardingState: null,
       };
 
       const result = await waitForReady(state);
@@ -163,10 +169,13 @@ describe("Integration: plugin against live BitRouter", () => {
         healthy: true,
         baseUrl: BITROUTER_URL,
         knownRoutes: [],
+        knownModels: [],
         healthCheckTimer: null,
         homeDir: "/tmp/test",
-        dynamicRoutes: new Map(),
         metrics: null,
+        apiToken: null,
+        adminToken: null,
+        onboardingState: null,
       };
 
       await refreshRoutes(state, api);
@@ -194,10 +203,13 @@ describe("Integration: plugin against live BitRouter", () => {
         healthy: true,
         baseUrl: BITROUTER_URL,
         knownRoutes: [{ model: "default", provider: "openrouter", protocol: "openai" }],
+        knownModels: [],
         healthCheckTimer: null,
         homeDir: "/tmp/test",
-        dynamicRoutes: new Map(),
         metrics: null,
+        apiToken: null,
+        adminToken: null,
+        onboardingState: null,
       };
 
       registerModelInterceptor(api, config, state);
@@ -225,10 +237,13 @@ describe("Integration: plugin against live BitRouter", () => {
         healthy: true,
         baseUrl: BITROUTER_URL,
         knownRoutes: [{ model: "default", provider: "openrouter", protocol: "openai" }],
+        knownModels: [],
         healthCheckTimer: null,
         homeDir: "/tmp/test",
-        dynamicRoutes: new Map(),
         metrics: null,
+        apiToken: null,
+        adminToken: null,
+        onboardingState: null,
       };
 
       registerModelInterceptor(api, config, state);
@@ -250,10 +265,13 @@ describe("Integration: plugin against live BitRouter", () => {
         healthy: true,
         baseUrl: BITROUTER_URL,
         knownRoutes: [],
+        knownModels: [],
         healthCheckTimer: null,
         homeDir: "/tmp/test",
-        dynamicRoutes: new Map(),
         metrics: null,
+        apiToken: null,
+        adminToken: null,
+        onboardingState: null,
       };
 
       registerModelInterceptor(api, config, state);

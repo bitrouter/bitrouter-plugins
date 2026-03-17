@@ -45,7 +45,7 @@ vi.mock("../src/auth.js", () => ({
   ensureAuth: vi.fn(() => ({ apiToken: "mock-api-jwt", adminToken: "mock-admin-jwt" })),
 }));
 
-vi.mock("../src/auto-detect.js", () => ({
+vi.mock("../src/discovery.js", () => ({
   buildAutoProviderConfig: vi.fn(() => ({ providers: {}, models: {} })),
 }));
 
@@ -71,6 +71,7 @@ function createMockState(): BitrouterState {
     healthy: false,
     baseUrl: "http://127.0.0.1:8787",
     knownRoutes: [],
+    knownModels: [],
     healthCheckTimer: null,
     homeDir: "/tmp/bitrouter-test",
     dynamicRoutes: new Map(),

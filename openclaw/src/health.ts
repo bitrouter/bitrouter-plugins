@@ -13,9 +13,8 @@ import type {
   OpenClawPluginApi,
 } from "./types.js";
 import { DEFAULTS } from "./types.js";
-import { refreshRoutes } from "./routing.js";
-import { refreshMetrics } from "./metrics.js";
-import { detectProviders } from "./auto-detect.js";
+import { refreshRoutes, refreshModels } from "./routing.js";
+import { detectProviders } from "./discovery.js";
 
 // ── Single health check ──────────────────────────────────────────────
 
@@ -55,10 +54,11 @@ export async function checkHealth(state: BitrouterState): Promise<boolean> {
 export function startHealthCheck(
   api: OpenClawPluginApi,
   config: BitrouterPluginConfig,
-  state: BitrouterState
+  state: BitrouterState,
 ): void {
   let tickCount = 0;
-  const interval = config.healthCheckIntervalMs ?? DEFAULTS.healthCheckIntervalMs;
+  const interval =
+    config.healthCheckIntervalMs ?? DEFAULTS.healthCheckIntervalMs;
 
   state.healthCheckTimer = setInterval(async () => {
     const wasHealthy = state.healthy;
@@ -67,24 +67,21 @@ export function startHealthCheck(
     // Log state transitions.
     if (isHealthy && !wasHealthy) {
       api.logger.info("BitRouter is healthy");
-      // Refresh routes immediately on recovery.
+      // Refresh routes and models immediately on recovery.
       await refreshRoutes(state, api);
+      await refreshModels(state, api);
     } else if (!isHealthy && wasHealthy) {
       api.logger.warn("BitRouter health check failed");
     }
 
     state.healthy = isHealthy;
 
-    // Refresh metrics on every healthy tick (lightweight).
-    if (isHealthy) {
-      await refreshMetrics(state, api);
-    }
-
     // Periodically refresh routes even when continuously healthy,
     // in case the config was reloaded on the BitRouter side.
     tickCount++;
     if (isHealthy && tickCount % DEFAULTS.routeRefreshInterval === 0) {
       await refreshRoutes(state, api);
+      await refreshModels(state, api);
 
       // In auto mode, re-scan for provider changes at the same cadence.
       if (config.mode === "auto") {
@@ -112,7 +109,7 @@ export function stopHealthCheck(state: BitrouterState): void {
 function rescanProviders(api: OpenClawPluginApi, state: BitrouterState): void {
   const newDetected = detectProviders(api);
   const currentNames = new Set(
-    state.autoDetectedProviders?.map((p) => p.name) ?? []
+    state.autoDetectedProviders?.map((p) => p.name) ?? [],
   );
   const newNames = new Set(newDetected.map((p) => p.name));
 
@@ -124,10 +121,10 @@ function rescanProviders(api: OpenClawPluginApi, state: BitrouterState): void {
   api.logger.info(
     `Provider change detected: ` +
       (added.length > 0 ? `+[${added.map((p) => p.name).join(", ")}] ` : "") +
-      (removed.length > 0 ? `-[${removed.join(", ")}]` : "")
+      (removed.length > 0 ? `-[${removed.join(", ")}]` : ""),
   );
   api.logger.info(
-    "Restart the gateway to apply provider changes: openclaw gateway restart"
+    "Restart the gateway to apply provider changes: openclaw gateway restart",
   );
 }
 

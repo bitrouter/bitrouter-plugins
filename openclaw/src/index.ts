@@ -4,20 +4,23 @@
  * Exports an OpenClawPluginDefinition that OpenClaw loads directly.
  * Wires together all sub-modules:
  *
- *   - service.ts  → daemon lifecycle (spawn/stop bitrouter)
- *   - provider.ts → register "bitrouter" as an LLM provider
- *   - routing.ts  → before_model_resolve hook for selective interception
- *   - config.ts   → generate bitrouter.yaml from plugin config
- *   - health.ts   → periodic health checks and readiness polling
- *   - setup.ts    → first-run wizard (BYOK / Cloud)
+ *   - service.ts        → daemon lifecycle (spawn/stop bitrouter)
+ *   - provider.ts       → register "bitrouter" as an LLM provider
+ *   - routing.ts        → before_model_resolve hook for selective interception
+ *   - prompt-context.ts → before_prompt_build hook for dynamic state injection
+ *   - http-routes.ts    → HTTP routes proxying to BitRouter's native API
+ *   - config.ts         → generate bitrouter.yaml from plugin config
+ *   - health.ts         → periodic health checks and readiness polling
+ *   - setup.ts          → first-run wizard (BYOK / Cloud)
  *
  * First-run behaviour:
  *   If config.mode is unset (plugin never configured), the plugin:
  *     1. Registers the "bitrouter" provider with both auth methods
  *        (so `openclaw models auth login --provider bitrouter` works)
  *     2. Registers a `openclaw bitrouter setup` CLI alias
- *     3. Logs a clear hint and returns early — daemon is NOT started,
- *        tools are NOT registered, model interception is OFF.
+ *     3. Activates in "auto" mode — provider detection is deferred to
+ *        the discovery.run(ctx) hook which uses ctx.resolveApiKey for
+ *        standard key resolution through OpenClaw's discovery phases.
  *
  *   After the wizard runs (writes configPatch → openclaw.json) and the
  *   gateway is restarted, config.mode will be set and full activation runs.
@@ -41,9 +44,8 @@ import { resolveHomeDir } from "./config.js";
 import { registerBitrouterService } from "./service.js";
 import { registerBitrouterProvider } from "./provider.js";
 import { registerModelInterceptor } from "./routing.js";
-import { registerAgentTools } from "./tools.js";
-import { registerGatewayMethods } from "./gateway.js";
-import { detectProviders } from "./auto-detect.js";
+import { registerPromptContext } from "./prompt-context.js";
+import { registerHttpRoutes } from "./http-routes.js";
 import { loadOnboardingState, isOnboardingComplete, needsOnboarding } from "./onboarding.js";
 import { resolveBinaryPath } from "./binary.js";
 
@@ -68,6 +70,7 @@ export function activate(api: OpenClawPluginApi): void {
     healthy: false,
     baseUrl: `http://${host}:${port}`,
     knownRoutes: [],
+    knownModels: [],
     healthCheckTimer: null,
     homeDir: resolveHomeDir(stateDirRef.value),
     metrics: null,
@@ -237,34 +240,15 @@ export function activate(api: OpenClawPluginApi): void {
       }
     }
 
-    // If not resolved to cloud, try env var auto-detection.
+    // If not resolved to cloud, activate in auto mode.
+    // Actual provider detection is deferred to the discovery.run(ctx) hook
+    // which uses ctx.resolveApiKey for standard key resolution.
     if (!config.mode) {
-      const detected = detectProviders(api);
-
-      if (detected.length === 0) {
-        api.logger.warn(
-          "BitRouter plugin is installed but no API keys detected in environment. " +
-            "Run: openclaw bitrouter setup"
-        );
-        return;
-      }
-
-      // Found providers — activate in auto mode.
-      api.logger.info(
-        `BitRouter auto-detected ${detected.length} provider(s): ` +
-          detected.map((p) => p.name).join(", ")
-      );
-      for (const p of detected) {
-        const masked = p.apiKey.length > 8
-          ? `${p.apiKey.slice(0, 4)}...${p.apiKey.slice(-4)}`
-          : "****";
-        api.logger.info(`  ${p.name}: ${p.envVarKey} found (${masked})`);
-      }
-
-      // Set mode in-memory only — auto mode re-scans on every restart.
       config.mode = "auto";
       config.interceptAllModels = true;
-      state.autoDetectedProviders = detected;
+      api.logger.info(
+        "BitRouter activating in auto mode — provider detection deferred to discovery phase"
+      );
     }
   }
 
@@ -285,25 +269,23 @@ export function activate(api: OpenClawPluginApi): void {
     api.logger.error(`Failed to register model interceptor: ${err}`);
   }
 
-  // Register agent tools for runtime route management.
+  // Register before_prompt_build hook for dynamic context injection.
   try {
-    registerAgentTools(api, config, state, stateDirRef);
+    registerPromptContext(api, config, state);
   } catch (err) {
-    api.logger.error(`Failed to register agent tools: ${err}`);
+    api.logger.error(`Failed to register prompt context hook: ${err}`);
   }
 
-  // Register gateway RPC methods.
+  // Register HTTP routes that proxy to BitRouter's native API.
   try {
-    registerGatewayMethods(api, state);
+    registerHttpRoutes(api, state);
   } catch (err) {
-    api.logger.error(`Failed to register gateway methods: ${err}`);
+    api.logger.error(`Failed to register HTTP routes: ${err}`);
   }
 
   if (config.mode === "auto") {
-    const names = state.autoDetectedProviders?.map((p) => p.name).join(", ") ?? "none";
     api.logger.info(
-      `BitRouter plugin activated in auto mode (${state.baseUrl}, ` +
-        `providers=${names}, interceptAll=true)`
+      `BitRouter plugin activated in auto mode (${state.baseUrl}, interceptAll=true)`
     );
   } else {
     const upstream = config.byok?.upstreamProvider ?? "unknown";

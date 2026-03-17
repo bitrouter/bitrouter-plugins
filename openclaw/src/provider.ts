@@ -36,7 +36,7 @@ import { byokWizard, cloudSetupHint } from "./setup.js";
 import { buildDiscoveryHandler } from "./discovery.js";
 import { PROVIDER_API_BASES, toEnvVarKey } from "./config.js";
 import { ensureAuth } from "./auth.js";
-import { detectProviders } from "./auto-detect.js";
+import { detectProviders } from "./discovery.js";
 
 // ── Non-interactive auth ──────────────────────────────────────────────
 
@@ -237,9 +237,10 @@ export function registerBitrouterProvider(
 
     // Discovery: publish BitRouter's routes as model catalog entries.
     // Runs during gateway startup and model catalog refresh.
+    // Uses ctx.resolveApiKey for auto-detection when BitRouter isn't healthy.
     discovery: {
       order: "late" as const,
-      run: buildDiscoveryHandler(state),
+      run: buildDiscoveryHandler(state, api),
     },
 
     // Format stored credentials for API requests.

@@ -22,6 +22,7 @@
 import type {
   BitrouterPluginConfig,
   BitrouterState,
+  ModelInfo,
   OpenClawPluginApi,
   PluginHookBeforeModelResolveEvent,
   PluginHookBeforeModelResolveResult,
@@ -69,6 +70,50 @@ export async function refreshRoutes(
   } catch (err) {
     // Don't clear existing routes — they may still be valid.
     api.logger.warn(`Route refresh failed: ${err}`);
+  }
+}
+
+// ── Model catalog refresh ────────────────────────────────────────────
+
+/**
+ * Fetch the model catalog from BitRouter's /v1/models endpoint.
+ *
+ * Returns OpenAI-compatible model objects, potentially enriched with
+ * BitRouter-specific fields (context_window, max_tokens, reasoning, input).
+ *
+ * On failure, preserves the existing cache.
+ */
+export async function refreshModels(
+  state: BitrouterState,
+  api: OpenClawPluginApi
+): Promise<void> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5_000);
+
+    const res = await fetch(`${state.baseUrl}/v1/models`, {
+      signal: controller.signal,
+      headers: state.apiToken
+        ? { Authorization: `Bearer ${state.apiToken}` }
+        : undefined,
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      api.logger.warn(
+        `Failed to fetch models: ${res.status} ${res.statusText}`
+      );
+      return;
+    }
+
+    const body = (await res.json()) as { data: ModelInfo[] };
+    state.knownModels = body.data ?? [];
+    api.logger.info(
+      `Loaded ${state.knownModels.length} model(s) from BitRouter`
+    );
+  } catch (err) {
+    // Don't clear existing models — they may still be valid.
+    api.logger.warn(`Model catalog refresh failed: ${err}`);
   }
 }
 
