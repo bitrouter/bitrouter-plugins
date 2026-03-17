@@ -25,14 +25,13 @@ import * as path from "node:path";
 import * as os from "node:os";
 
 import type {
-  ChainType,
   ProviderAuthContext,
   ProviderAuthResult,
   SetupMode,
 } from "./types.js";
 import { DEFAULTS } from "./types.js";
 import { PROVIDER_API_BASES, toEnvVarKey, parseEnvFile, serializeEnvFile } from "./config.js";
-import { ensureAuth } from "./auth.js";
+import { ensureAuthViaCli } from "./bitrouter-cli.js";
 
 // ── Well-known upstream providers ────────────────────────────────────
 
@@ -169,25 +168,6 @@ export async function byokWizard(
     throw new Error("Setup cancelled.");
   }
 
-  // ── Step 4: Chain identity ──────────────────────────────────────
-
-  const chainChoice = await prompter.select<ChainType>({
-    message: "Which wallet identity should BitRouter use for JWT auth?",
-    options: [
-      {
-        value: "solana" as ChainType,
-        label: "Solana (Ed25519)",
-        hint: "Default — compatible with all BitRouter versions",
-      },
-      {
-        value: "evm" as ChainType,
-        label: "EVM / Base (secp256k1)",
-        hint: "EIP-191 signing — new in BitRouter v0.7",
-      },
-    ],
-    initialValue: "solana" as ChainType,
-  });
-
   // ── Done ─────────────────────────────────────────────────────────
 
   // Write the API key to the BitRouter home dir's .env file so the service
@@ -195,8 +175,10 @@ export async function byokWizard(
   const homeDir = resolveSetupHomeDir(ctx);
   writeKeyToEnv(homeDir, providerChoice, apiKey.trim());
 
-  // Generate keypair + JWTs for authenticating with local BitRouter.
-  const { apiToken: jwt } = ensureAuth(homeDir, chainChoice);
+  // Ensure a bitrouter account exists and mint a JWT for authenticating
+  // with the local BitRouter instance. Delegates to the bitrouter CLI.
+  const stateDir = ctx.workspaceDir ?? `${os.homedir()}/.openclaw/plugins/bitrouter`;
+  const { apiToken: jwt } = await ensureAuthViaCli(stateDir, homeDir);
 
   await prompter.outro(
     "BitRouter configured! Next steps:\n" +
@@ -227,7 +209,6 @@ export async function byokWizard(
               upstreamProvider: providerChoice,
               ...(apiBase ? { apiBase } : {}),
             },
-            chain: chainChoice,
           },
         },
       },

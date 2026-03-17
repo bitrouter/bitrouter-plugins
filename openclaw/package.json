@@ -20,8 +20,6 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@noble/curves": "^1.8.0",
-    "@noble/hashes": "^1.7.0",
     "yaml": "^2.4.0"
   },
   "devDependencies": {

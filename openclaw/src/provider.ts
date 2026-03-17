@@ -35,7 +35,7 @@ import { DEFAULTS } from "./types.js";
 import { byokWizard, cloudSetupHint } from "./setup.js";
 import { buildDiscoveryHandler } from "./discovery.js";
 import { PROVIDER_API_BASES, toEnvVarKey } from "./config.js";
-import { ensureAuth } from "./auth.js";
+import { ensureAuthViaCli } from "./bitrouter-cli.js";
 import { detectProviders } from "./discovery.js";
 
 // ── Non-interactive auth ──────────────────────────────────────────────
@@ -120,7 +120,10 @@ async function byokNonInteractive(
       ? `${ctx.workspaceDir}/bitrouter`
       : `${process.env.HOME}/.openclaw/bitrouter`;
 
-  const { apiToken: jwt } = ensureAuth(homeDir);
+  const stateDir = ctx.workspaceDir
+    ? `${ctx.workspaceDir}/plugins/bitrouter`
+    : `${process.env.HOME}/.openclaw/plugins/bitrouter`;
+  const { apiToken: jwt } = await ensureAuthViaCli(stateDir, homeDir);
 
   const bitrouterApiBase = `http://${DEFAULTS.host}:${DEFAULTS.port}/v1`;
 
@@ -247,13 +250,8 @@ export function registerBitrouterProvider(
       if (cred?.type === "api_key" && cred.key) {
         return cred.key as string;
       }
-      // Fallback: try to mint a fresh JWT from the keypair.
-      try {
-        const { apiToken } = ensureAuth(state.homeDir);
-        return apiToken;
-      } catch {
-        return "";
-      }
+      // Fallback: use the cached token from state (minted at service startup).
+      return state.apiToken ?? "";
     },
   });
 }

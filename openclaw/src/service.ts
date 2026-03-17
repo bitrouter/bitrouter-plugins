@@ -32,7 +32,7 @@ import {
   toEnvVarKey,
   parseEnvFile,
 } from "./config.js";
-import { ensureAuth } from "./auth.js";
+import { ensureAuthViaCli } from "./bitrouter-cli.js";
 import { startHealthCheck, stopHealthCheck, waitForReady } from "./health.js";
 import { refreshRoutes } from "./routing.js";
 import { resolveBinaryPath } from "./binary.js";
@@ -88,13 +88,13 @@ export function registerBitrouterService(
       // Load onboarding state from onboarding.json (written by Rust CLI).
       state.onboardingState = loadOnboardingState(state.homeDir);
 
-      // Generate/load keypair and mint JWTs for authenticating with
-      // the local BitRouter instance (API + admin scopes).
+      // Ensure a bitrouter account exists and mint JWTs for authenticating
+      // with the local BitRouter instance (API + admin scopes).
       try {
-        const tokens = ensureAuth(state.homeDir, config.chain);
+        const tokens = await ensureAuthViaCli(ctx.stateDir, state.homeDir);
         state.apiToken = tokens.apiToken;
         state.adminToken = tokens.adminToken;
-        api.logger.info(`Auth keypair ready (${config.chain ?? "solana"})`);
+        api.logger.info("Auth tokens ready (via bitrouter CLI)");
       } catch (err) {
         api.logger.warn(`Failed to generate auth tokens: ${err}`);
       }
