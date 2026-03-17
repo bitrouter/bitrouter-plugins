@@ -25,6 +25,7 @@ function createMockState(
     metrics: null,
     apiToken: null,
     adminToken: null,
+    onboardingState: null,
     ...overrides,
   };
 }
@@ -80,7 +81,7 @@ beforeEach(async () => {
 const stateDirRef = { value: "/tmp" };
 
 describe("tool registration", () => {
-  it("registers all 7 tools", () => {
+  it("registers all 9 tools", () => {
     const api = createMockApi();
     const state = createMockState();
     registerAgentTools(api as unknown as OpenClawPluginApi, {}, state, stateDirRef);
@@ -92,7 +93,9 @@ describe("tool registration", () => {
     expect(api._tools.has("bitrouter_add_route")).toBe(true);
     expect(api._tools.has("bitrouter_remove_route")).toBe(true);
     expect(api._tools.has("bitrouter_list_routes")).toBe(true);
-    expect(api._tools.size).toBe(7);
+    expect(api._tools.has("bitrouter_wallet")).toBe(true);
+    expect(api._tools.has("bitrouter_spend")).toBe(true);
+    expect(api._tools.size).toBe(9);
   });
 
   it("does not register removed tools", () => {

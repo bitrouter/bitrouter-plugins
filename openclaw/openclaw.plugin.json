@@ -138,10 +138,24 @@
           "required": ["endpoints"]
         }
       },
+      "solanaRpcUrl": {
+        "type": "string",
+        "description": "Solana RPC URL for on-chain operations (Swig wallet, x402 payments)."
+      },
+      "cloud": {
+        "type": "object",
+        "description": "Cloud-specific configuration for BitRouter Cloud mode.",
+        "properties": {
+          "solanaRpcUrl": {
+            "type": "string",
+            "description": "Solana RPC URL override for cloud mode."
+          }
+        }
+      },
       "mode": {
         "type": "string",
         "enum": ["byok", "cloud", "auto"],
-        "description": "Setup mode. 'auto' = detected from environment variables. 'byok' = bring your own API key (wizard). 'cloud' = BitRouter Cloud (coming soon). Unset = not yet configured and no env vars found."
+        "description": "Setup mode. 'auto' = detected from environment variables. 'byok' = bring your own API key (wizard). 'cloud' = Swig wallet for x402 payments. Unset = not yet configured and no env vars found."
       },
       "byok": {
         "type": "object",

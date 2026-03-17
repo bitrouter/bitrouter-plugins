@@ -9,6 +9,7 @@ import type {
   OpenClawPluginApi,
 } from "./types.js";
 import { refreshMetrics } from "./metrics.js";
+import { loadOnboardingState } from "./onboarding.js";
 
 /**
  * Register gateway RPC methods.
@@ -40,5 +41,11 @@ export function registerGatewayMethods(
       routes,
       metricsAvailable: state.metrics !== null,
     });
+  });
+
+  // ── bitrouter.wallet ──────────────────────────────────────────────
+  api.registerGatewayMethod("bitrouter.wallet", async (opts: GatewayRequestHandlerOptions) => {
+    const onboarding = loadOnboardingState(state.homeDir);
+    opts.respond(true, onboarding ?? { error: "No onboarding state found" });
   });
 }

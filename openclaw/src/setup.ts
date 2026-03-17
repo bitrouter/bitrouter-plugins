@@ -314,35 +314,37 @@ function writeKeyToEnv(
   }
 }
 
-// ── Cloud stub ───────────────────────────────────────────────────────
+// ── Cloud setup hint ─────────────────────────────────────────────────
 
 /**
- * Stub for the BitRouterAI Cloud auth flow.
+ * Direct the user to the interactive CLI for Swig wallet onboarding.
  *
- * Shows a "coming soon" message and exits cleanly.
- * Will be replaced with OAuth in the next version.
+ * The Rust binary's `bitrouter init` uses `dialoguer` for interactive
+ * prompts, which requires raw terminal access. The OpenClaw prompter
+ * API cannot proxy this, so we point the user to the CLI command.
  */
-export async function cloudStub(
+export async function cloudSetupHint(
   ctx: ProviderAuthContext
 ): Promise<ProviderAuthResult> {
   const { prompter } = ctx;
 
-  await prompter.intro("BitRouter Cloud");
+  await prompter.intro("BitRouter Cloud — Swig Wallet Setup");
   await prompter.note(
-    "BitRouter Cloud authentication is coming in the next version.\n\n" +
-      "In the meantime, use the BYOK option to route through your own\n" +
-      "API key (OpenRouter, OpenAI, Anthropic, or any OpenAI-compatible API).\n\n" +
-      "Run: openclaw models auth login --provider bitrouter --method byok",
-    "Coming Soon"
+    "Cloud mode requires interactive wallet onboarding via the CLI.\n\n" +
+      "Run the following command in your terminal:\n\n" +
+      "  openclaw bitrouter setup\n\n" +
+      "This will launch the BitRouter onboarding wizard which sets up\n" +
+      "a Swig wallet for x402 cloud payments. Once complete, restart\n" +
+      "the gateway to activate cloud mode.",
+    "Setup Required"
   );
-  await prompter.outro("No changes made.");
+  await prompter.outro("No changes made — run `openclaw bitrouter setup` to continue.");
 
-  // Return a no-op result — no profiles, no config patch.
   return {
     profiles: [],
     notes: [
-      "BitRouter Cloud is not yet available. Use BYOK mode for now.",
-      "Run: openclaw models auth login --provider bitrouter --method byok",
+      "Cloud mode requires interactive CLI setup.",
+      "Run: openclaw bitrouter setup",
     ],
   };
 }

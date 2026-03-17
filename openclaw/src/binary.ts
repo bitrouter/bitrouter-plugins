@@ -18,9 +18,26 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-const BITROUTER_VERSION = "0.7.0";
+const BITROUTER_VERSION = "0.10.0";
 
 const GITHUB_DOWNLOAD_BASE = `https://github.com/bitrouter/bitrouter/releases/download/v${BITROUTER_VERSION}`;
+
+/**
+ * Check if a cached binary matches the expected version.
+ * Returns true if the version matches, false otherwise.
+ */
+function checkBinaryVersion(binaryPath: string): boolean {
+  try {
+    const output = execSync(`"${binaryPath}" --version`, {
+      encoding: "utf-8",
+      timeout: 5_000,
+    }).trim();
+    // Output is typically "bitrouter X.Y.Z" or just "X.Y.Z"
+    return output.includes(BITROUTER_VERSION);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Map Node.js platform/arch to the GitHub release asset name.
@@ -113,7 +130,16 @@ export async function resolveBinaryPath(dataDir: string | null): Promise<string>
     const cachedPath = join(binDir, binaryName);
 
     if (existsSync(cachedPath)) {
-      return cachedPath;
+      // Verify version matches — re-download if mismatched.
+      if (checkBinaryVersion(cachedPath)) {
+        return cachedPath;
+      }
+      // Version mismatch — remove stale binary and re-download.
+      try {
+        unlinkSync(cachedPath);
+      } catch {
+        // Non-critical.
+      }
     }
 
     // Try 2: Download from GitHub releases.

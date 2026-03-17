@@ -14,6 +14,7 @@ import type {
   OpenClawPluginApi,
   ToolResult,
 } from "./types.js";
+import { loadOnboardingState } from "./onboarding.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -463,6 +464,69 @@ export function registerAgentTools(
         const result = await fetchJson(state, "/admin/routes", "GET", undefined, true);
         if (!result.ok) {
           return errorResult(`Failed to list routes: ${result.error}`);
+        }
+        return textResult(JSON.stringify(result.data, null, 2));
+      },
+    },
+    { optional: true }
+  );
+
+  // ── bitrouter_wallet ───────────────────────────────────────────
+
+  register(
+    {
+      name: "bitrouter_wallet",
+      description:
+        "Show BitRouter wallet and agent wallet info from the onboarding state.",
+      parameters: Type.Object({}),
+      execute: async () => {
+        const onboarding = loadOnboardingState(state.homeDir);
+        if (!onboarding) {
+          return errorResult(
+            "No onboarding state found. Run: openclaw bitrouter setup"
+          );
+        }
+
+        const sections: string[] = [`Status: ${onboarding.status}`];
+        if (onboarding.wallet_address) {
+          sections.push(`Wallet: ${onboarding.wallet_address}`);
+        }
+        if (onboarding.swig_id) {
+          sections.push(`Swig ID: ${onboarding.swig_id}`);
+        }
+        if (onboarding.rpc_url) {
+          sections.push(`RPC URL: ${onboarding.rpc_url}`);
+        }
+        if (onboarding.agent_wallets.length > 0) {
+          sections.push(`\nAgent Wallets (${onboarding.agent_wallets.length}):`);
+          for (const aw of onboarding.agent_wallets) {
+            sections.push(
+              `  ${aw.label}: ${aw.address} (role ${aw.role_id})` +
+                (aw.permissions.per_tx_cap
+                  ? ` per_tx_cap=${aw.permissions.per_tx_cap}`
+                  : "")
+            );
+          }
+        }
+
+        return textResult(sections.join("\n"));
+      },
+    },
+    { optional: true }
+  );
+
+  // ── bitrouter_spend ────────────────────────────────────────────
+
+  register(
+    {
+      name: "bitrouter_spend",
+      description:
+        "Fetch spend and cost metrics from BitRouter's /v1/metrics endpoint.",
+      parameters: Type.Object({}),
+      execute: async () => {
+        const result = await fetchJson(state, "/v1/metrics");
+        if (!result.ok) {
+          return errorResult(`Failed to fetch metrics: ${result.error}`);
         }
         return textResult(JSON.stringify(result.data, null, 2));
       },

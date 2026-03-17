@@ -49,6 +49,10 @@ vi.mock("../src/auto-detect.js", () => ({
   buildAutoProviderConfig: vi.fn(() => ({ providers: {}, models: {} })),
 }));
 
+vi.mock("../src/onboarding.js", () => ({
+  loadOnboardingState: vi.fn(() => null),
+}));
+
 import { spawn } from "node:child_process";
 import { resolveBinaryPath } from "../src/binary.js";
 import { registerBitrouterService } from "../src/service.js";
@@ -71,6 +75,7 @@ function createMockState(): BitrouterState {
     homeDir: "/tmp/bitrouter-test",
     dynamicRoutes: new Map(),
     metrics: null,
+    onboardingState: null,
   };
 }
 

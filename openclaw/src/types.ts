@@ -19,6 +19,52 @@ import type { ChildProcess } from "node:child_process";
  */
 export type ChainType = "solana" | "evm";
 
+// ── Onboarding types ─────────────────────────────────────────────────
+
+/**
+ * Status of the Swig wallet onboarding flow (read from onboarding.json).
+ */
+export type OnboardingStatus =
+  | "not_started"
+  | "completed_cloud"
+  | "completed_byok"
+  | "deferred"
+  | "failed_recoverable";
+
+/**
+ * Permission caps for an agent wallet role.
+ */
+export interface AgentPermissions {
+  per_tx_cap?: number;
+  cumulative_cap?: number;
+  expires_at?: number;
+}
+
+/**
+ * An agent wallet entry within the Swig onboarding state.
+ */
+export interface AgentWalletInfo {
+  label: string;
+  address: string;
+  role_id: number;
+  permissions: AgentPermissions;
+  created_at: string;
+}
+
+/**
+ * Onboarding state persisted by the Rust CLI in `<homeDir>/onboarding.json`.
+ * The plugin reads this file but never writes to it.
+ */
+export interface OnboardingState {
+  status: OnboardingStatus;
+  master_wallet_path?: string;
+  embedded_wallet_address?: string;
+  wallet_address?: string;
+  swig_id?: string;
+  rpc_url?: string;
+  agent_wallets: AgentWalletInfo[];
+}
+
 // ── Setup mode ───────────────────────────────────────────────────────
 
 /**
@@ -60,6 +106,10 @@ export interface BitrouterPluginConfig {
   byok?: BitrouterByokConfig;
   /** Blockchain identity for JWT auth. Defaults to "solana". */
   chain?: ChainType;
+  /** Solana RPC URL for on-chain operations. */
+  solanaRpcUrl?: string;
+  /** Cloud-specific configuration. */
+  cloud?: { solanaRpcUrl?: string };
 }
 
 /** A single provider entry in the plugin config (camelCase, TS-side). */
@@ -207,6 +257,8 @@ export interface BitrouterState {
   adminToken: string | null;
   /** Providers detected via env var sniffing in auto mode. */
   autoDetectedProviders?: import("./auto-detect.js").DetectedProvider[];
+  /** Onboarding state loaded from onboarding.json (null if not present). */
+  onboardingState: OnboardingState | null;
 }
 
 // ── Re-exports from OpenClaw plugin SDK ──────────────────────────────

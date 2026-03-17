@@ -32,6 +32,7 @@ import { refreshRoutes } from "./routing.js";
 import { refreshMetrics } from "./metrics.js";
 import { resolveBinaryPath } from "./binary.js";
 import { buildAutoProviderConfig, type DetectedProvider } from "./auto-detect.js";
+import { loadOnboardingState } from "./onboarding.js";
 
 // ── Service registration ─────────────────────────────────────────────
 
@@ -60,6 +61,9 @@ export function registerBitrouterService(
 
       writeConfigToDir(effectiveConfig, state.homeDir);
       api.logger.info(`Config written to ${state.homeDir}`);
+
+      // Load onboarding state from onboarding.json (written by Rust CLI).
+      state.onboardingState = loadOnboardingState(state.homeDir);
 
       // Generate/load keypair and mint JWTs for authenticating with
       // the local BitRouter instance (API + admin scopes).
@@ -195,6 +199,20 @@ function buildEffectiveConfig(
   homeDir: string,
   autoDetected?: DetectedProvider[]
 ): BitrouterPluginConfig {
+  // ── Cloud mode: delegate to Rust binary with solanaRpcUrl ──
+  if (config.mode === "cloud") {
+    const solanaRpcUrl = config.solanaRpcUrl ?? config.cloud?.solanaRpcUrl;
+    return {
+      ...config,
+      ...(solanaRpcUrl ? { solanaRpcUrl } : {}),
+      guardrails: config.guardrails ?? {
+        enabled: true,
+        upgoing: { private_keys: "redact", credentials: "warn", api_keys: "warn" },
+        downgoing: { suspicious_commands: "warn" },
+      },
+    };
+  }
+
   // ── Default guardrails when not explicitly configured ──
   if (!config.guardrails) {
     config = {

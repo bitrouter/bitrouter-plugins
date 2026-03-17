@@ -138,6 +138,18 @@ describe("generateConfig", () => {
     );
   });
 
+  it("includes solana_rpc_url in YAML when set", () => {
+    const { yaml } = generateConfig({ solanaRpcUrl: "https://api.mainnet-beta.solana.com" });
+    const parsed = YAML.parse(yaml);
+    expect(parsed.solana_rpc_url).toBe("https://api.mainnet-beta.solana.com");
+  });
+
+  it("omits solana_rpc_url from YAML when not set", () => {
+    const { yaml } = generateConfig({});
+    const parsed = YAML.parse(yaml);
+    expect(parsed.solana_rpc_url).toBeUndefined();
+  });
+
   it("round-trips through YAML parse without data loss", () => {
     const config: BitrouterPluginConfig = {
       port: 9090,

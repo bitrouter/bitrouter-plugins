@@ -22,7 +22,7 @@ import type {
   BitrouterState,
   OpenClawPluginApi,
 } from "./types.js";
-import { byokWizard, cloudStub } from "./setup.js";
+import { byokWizard, cloudSetupHint } from "./setup.js";
 
 // ── Provider registration ─────────────────────────────────────────────
 
@@ -50,10 +50,10 @@ export function registerBitrouterProvider(
       },
       {
         id: "cloud",
-        label: "BitRouter Cloud (coming soon)",
-        hint: "Sign in to BitRouterAI cloud — no upstream key needed",
+        label: "BitRouter Cloud (wallet setup)",
+        hint: "Set up Swig wallet for x402 payments via interactive CLI",
         kind: "oauth",
-        run: cloudStub,
+        run: cloudSetupHint,
       },
     ],
   });

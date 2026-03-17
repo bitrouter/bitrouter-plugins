@@ -172,6 +172,11 @@ export function generateConfig(
     yamlObj.models = models;
   }
 
+  // --- Solana RPC URL ---
+  if (config.solanaRpcUrl) {
+    yamlObj.solana_rpc_url = config.solanaRpcUrl;
+  }
+
   // --- Guardrails ---
   if (config.guardrails) {
     yamlObj.guardrails = {
