@@ -41,8 +41,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bitrouter/bitrouter-plugins.git",
-    "directory": "openclaw"
+    "url": "https://github.com/bitrouter/bitrouter-openclaw.git"
   },
   "keywords": [
     "openclaw",

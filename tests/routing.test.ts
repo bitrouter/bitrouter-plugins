@@ -5,7 +5,6 @@ import {
 } from "../src/routing.js";
 import type {
   BitrouterState,
-  BitrouterPluginConfig,
   OpenClawPluginApi,
   PluginHookBeforeModelResolveEvent,
   PluginHookAgentContext,
@@ -142,7 +141,7 @@ describe("registerModelInterceptor", () => {
   it("registers a before_model_resolve handler", () => {
     const api = createMockApi();
     const state = createMockState();
-    registerModelInterceptor(api, {}, state);
+    registerModelInterceptor(api, state);
 
     expect(api.on).toHaveBeenCalledWith(
       "before_model_resolve",
@@ -153,7 +152,7 @@ describe("registerModelInterceptor", () => {
   it("does not intercept when BitRouter is unhealthy", () => {
     const api = createMockApi("fast");
     const state = createMockState({ healthy: false });
-    registerModelInterceptor(api, {}, state);
+    registerModelInterceptor(api, state);
 
     const handler = extractHookHandler(api);
     const result = handler({ prompt: "test" }, { agentId: "main" });
@@ -168,8 +167,7 @@ describe("registerModelInterceptor", () => {
         { model: "fast", provider: "openai", protocol: "openai" },
       ],
     });
-    const config: BitrouterPluginConfig = { interceptAllModels: false };
-    registerModelInterceptor(api, config, state);
+    registerModelInterceptor(api, state);
 
     const handler = extractHookHandler(api);
     const result = handler({ prompt: "test" }, { agentId: "main" });
@@ -187,8 +185,7 @@ describe("registerModelInterceptor", () => {
         { model: "fast", provider: "openai", protocol: "openai" },
       ],
     });
-    const config: BitrouterPluginConfig = { interceptAllModels: false };
-    registerModelInterceptor(api, config, state);
+    registerModelInterceptor(api, state);
 
     const handler = extractHookHandler(api);
     const result = handler({ prompt: "test" }, { agentId: "main" });
@@ -197,19 +194,16 @@ describe("registerModelInterceptor", () => {
     expect(result).toBeUndefined();
   });
 
-  it("intercepts ALL models when interceptAllModels is true", () => {
+  it("does not intercept unknown models when no routes match", () => {
     const api = createMockApi("anything-at-all");
     const state = createMockState({ knownRoutes: [] }); // No routes cached.
-    const config: BitrouterPluginConfig = { interceptAllModels: true };
-    registerModelInterceptor(api, config, state);
+    registerModelInterceptor(api, state);
 
     const handler = extractHookHandler(api);
     const result = handler({ prompt: "test" }, { agentId: "main" });
 
-    expect(result).toEqual({
-      providerOverride: "bitrouter",
-      modelOverride: "anything-at-all",
-    });
+    // No matching route → falls through to OpenClaw's native resolution.
+    expect(result).toBeUndefined();
   });
 });
 

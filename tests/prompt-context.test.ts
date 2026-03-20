@@ -88,7 +88,7 @@ describe("registerPromptContext", () => {
     expect(result!.appendSystemContext).toContain("/bitrouter skill");
   });
 
-  it("returns unhealthy status when BitRouter is down", () => {
+  it("omits healthy tag when BitRouter is down", () => {
     const api = createMockApi();
     const config: BitrouterPluginConfig = { mode: "byok" };
     const state = createMockState({ healthy: false });
@@ -97,7 +97,7 @@ describe("registerPromptContext", () => {
     const handler = getHookHandler(api);
     const result = handler({ prompt: "hello" }, {});
 
-    expect(result!.prependContext).toContain("unhealthy");
+    expect(result!.prependContext).not.toContain("healthy");
   });
 
   it("includes mode and route count in dynamic context", () => {
