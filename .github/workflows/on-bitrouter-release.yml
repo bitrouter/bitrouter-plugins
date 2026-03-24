@@ -5,65 +5,49 @@ on:
     types: [bitrouter-release]
 
 jobs:
-  open-issue:
-    name: Open update issue
+  update-plugin:
+    name: Update plugin for new release
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      id-token: write
+      contents: write
+      pull-requests: write
       issues: write
     steps:
-      - name: Fetch release notes
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: anomalyco/opencode/github@latest
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release view "${{ github.event.client_payload.tag }}" \
-            --repo bitrouter/bitrouter \
-            --json body \
-            --jq '.body' > release_notes.md
+          BITROUTER_API_KEY: ${{ secrets.BITROUTER_API_KEY }}
+        with:
+          model: bitrouter/kimi-k2.5
+          prompt: |
+            BitRouter ${{ github.event.client_payload.tag }} was just released.
 
-      - name: Build issue body
-        run: |
-          TAG="${{ github.event.client_payload.tag }}"
-          cat > issue_body.md <<EOF
-          ## BitRouter $TAG released — plugin update needed
+            Fetch the release notes by running:
+              gh release view ${{ github.event.client_payload.tag }} --repo bitrouter/bitrouter --json body --jq '.body'
 
-          <details>
-          <summary>Release notes</summary>
+            Based on the release notes, update this plugin repo:
 
-          $(cat release_notes.md)
+            1. Version pin:
+               - Update BITROUTER_VERSION in src/binary.ts to match the new release version (strip the leading "v")
+               - Verify the download URL pattern in src/binary.ts still matches the release asset naming
 
-          </details>
+            2. Interface compatibility:
+               - Check src/http-routes.ts against any new or changed API endpoints mentioned in the notes
+               - Check src/config.ts against any new config fields
+               - Check src/discovery.ts if the provider list changed
+               - Update openclaw.plugin.json schema if new config options were added
 
-          ### Checklist
+            3. Breaking changes (if feat!: or BREAKING CHANGE appears in the notes):
+               - If you can confidently fix the adapter code, do so
+               - If the fix is uncertain, add a TODO comment explaining what needs attention
+               - Flag breaking changes explicitly in the PR body
 
-          **Version pin**
-          - [ ] Update \`BITROUTER_VERSION\` in \`src/binary.ts\` to match new release
-          - [ ] Verify download URLs resolve for all platforms (macOS, Linux, Windows × arm64/x86_64)
+            4. Run `npm test` and fix any failures caused by your changes
 
-          **Interface compatibility**
-          - [ ] Review HTTP API surface changes — check \`src/http-routes.ts\` against new endpoints
-          - [ ] Review config schema changes — check \`src/config.ts\` against new config fields
-          - [ ] Review provider discovery changes — check \`src/discovery.ts\` if provider list changed
-          - [ ] Update \`openclaw.plugin.json\` schema if new config options were added
-
-          **Breaking changes** (if any)
-          - [ ] Add \`TODO\` comments in adapter code where fix is uncertain
-          - [ ] Update \`package.json\` version (minor bump for compatible, major for breaking)
-
-          **Tests**
-          - [ ] Run \`npm test\` to verify existing tests pass against new version
-          - [ ] Add tests for any new integration points
-
-          ---
-          *Opened automatically by [release-propagate](https://github.com/bitrouter/bitrouter/actions/workflows/release-propagate.yml)*
-          EOF
-
-      - name: Create issue
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh issue create \
-            --repo "${{ github.repository }}" \
-            --title "chore: update for BitRouter ${{ github.event.client_payload.tag }}" \
-            --body-file issue_body.md \
-            --label "chore,automation"
+            Only modify files where the release notes indicate actual changes. Do not make speculative edits.
+            Open a PR to main with branch chore/plugins-${{ github.event.client_payload.tag }}.
