@@ -34,7 +34,7 @@ import {
 } from "./config.js";
 import { ensureAuthViaCli } from "./bitrouter-cli.js";
 import { startHealthCheck, stopHealthCheck, waitForReady } from "./health.js";
-import { refreshRoutes } from "./routing.js";
+import { refreshRoutes, refreshAgents, refreshTools, refreshSkills } from "./routing.js";
 import { resolveBinaryPath } from "./binary.js";
 import { buildAutoProviderConfig, type DetectedProvider } from "./discovery.js";
 import { loadOnboardingState } from "./onboarding.js";
@@ -166,8 +166,11 @@ export function registerBitrouterService(
         state.healthy = true;
         api.logger.info("BitRouter is ready");
 
-        // Load the initial routing table and metrics.
+        // Load the initial routing table, agents, tools, and skills.
         await refreshRoutes(state, api);
+        await refreshAgents(state, api);
+        await refreshTools(state, api);
+        await refreshSkills(state, api);
       }
 
       // 5. Start periodic health checks.

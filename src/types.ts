@@ -103,6 +103,56 @@ export interface BitrouterPluginConfig {
     agentModels?: Record<string, AgentModelConfig>;
     switchedAt?: string;
   };
+
+  // ── A2A agent config ─────────────────────────────────────────────
+  /** Upstream A2A agents to proxy through BitRouter. */
+  a2aAgents?: A2aAgentConfigEntry[];
+  /** Per-agent pricing overrides. */
+  a2aAgentPricing?: Record<string, PricingConfig>;
+
+  // ── MCP server config ────────────────────────────────────────────
+  /** Upstream MCP servers to proxy through BitRouter. */
+  mcpServers?: McpServerConfigEntry[];
+  /** Named groups of MCP servers. */
+  mcpGroups?: Record<string, string[]>;
+  /** Per-server pricing overrides. */
+  mcpServerPricing?: Record<string, PricingConfig>;
+
+  // ── Skills config ────────────────────────────────────────────────
+  /** Skills to register on startup. */
+  skills?: SkillConfigEntry[];
+}
+
+/** A2A agent configuration entry. */
+export interface A2aAgentConfigEntry {
+  name: string;
+  url: string;
+  headers?: Record<string, string>;
+  cardPath?: string;
+}
+
+/** MCP server configuration entry. */
+export interface McpServerConfigEntry {
+  name: string;
+  command: string;
+  args?: string[];
+  toolFilter?: { allow?: string[]; deny?: string[] };
+  paramRestrictions?: { rules?: Array<{ tool: string; forbiddenParams?: string[] }> };
+}
+
+/** Skill configuration entry. */
+export interface SkillConfigEntry {
+  name: string;
+  description: string;
+  source?: string;
+  requiredApis?: Array<{ provider: string }>;
+}
+
+/** Pricing config for A2A agents or MCP servers. */
+export interface PricingConfig {
+  defaultCostPerCall?: number;
+  /** Method-level (A2A) or tool-level (MCP) cost overrides. */
+  overrides?: Record<string, number>;
 }
 
 /** Agent model config — mirrors the SDK's model field shape. */
@@ -140,6 +190,58 @@ export interface RouteInfo {
   provider: string;
   /** API protocol used by this provider. */
   protocol: "openai" | "anthropic" | "google";
+}
+
+// ── A2A agent types (from GET /v1/agents) ────────────────────────────
+
+/** A skill advertised by an A2A agent. */
+export interface AgentSkillInfo {
+  id: string;
+  name: string;
+  description?: string;
+  tags?: string[];
+  examples?: string[];
+}
+
+/** An upstream A2A agent entry from GET /v1/agents. */
+export interface AgentInfo {
+  id: string;
+  name?: string;
+  provider: string;
+  description?: string;
+  version?: string;
+  skills: AgentSkillInfo[];
+  input_modes: string[];
+  output_modes: string[];
+  streaming?: boolean;
+  icon_url?: string;
+  documentation_url?: string;
+}
+
+// ── Unified tool types (from GET /v1/tools) ──────────────────────────
+
+/** A tool entry from GET /v1/tools (MCP tools + skills). */
+export interface ToolInfo {
+  id: string;
+  name?: string;
+  /** "skill" for registered skills, MCP server name for tools. */
+  provider: string;
+  description?: string;
+  input_schema?: Record<string, unknown>;
+}
+
+// ── Skills types (from GET /v1/skills) ───────────────────────────────
+
+/** A registered skill from GET /v1/skills. */
+export interface SkillInfo {
+  id: string;
+  name: string;
+  description: string;
+  source?: string;
+  required_apis: string[];
+  installed_by?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 /** Response from GET /health. */
@@ -266,6 +368,12 @@ export interface BitrouterState {
   knownRoutes: RouteInfo[];
   /** Cached model catalog from GET /v1/models. */
   knownModels: ModelInfo[];
+  /** Cached upstream A2A agents from GET /v1/agents. */
+  knownAgents: AgentInfo[];
+  /** Cached unified tools (MCP + skills) from GET /v1/tools. */
+  knownTools: ToolInfo[];
+  /** Cached registered skills from GET /v1/skills. */
+  knownSkills: SkillInfo[];
   /** Handle for the periodic health check interval. */
   healthCheckTimer: ReturnType<typeof setInterval> | null;
   /** Absolute path to the generated BitRouter home directory. */

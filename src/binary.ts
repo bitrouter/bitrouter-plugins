@@ -18,7 +18,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-const BITROUTER_VERSION = "0.11.0";
+const BITROUTER_VERSION = "0.12.0";
 
 const GITHUB_DOWNLOAD_BASE = `https://github.com/bitrouter/bitrouter/releases/download/v${BITROUTER_VERSION}`;
 

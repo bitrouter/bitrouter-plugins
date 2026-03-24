@@ -152,6 +152,143 @@
           }
         }
       },
+      "a2aAgents": {
+        "type": "array",
+        "description": "Upstream A2A agents to proxy through BitRouter's A2A gateway.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Agent name (used in URL path: /a2a/{name})."
+            },
+            "url": {
+              "type": "string",
+              "description": "Upstream agent URL."
+            },
+            "headers": {
+              "type": "object",
+              "additionalProperties": { "type": "string" },
+              "description": "Custom headers to send to the upstream agent."
+            },
+            "cardPath": {
+              "type": "string",
+              "description": "Optional local path to cache the agent card."
+            }
+          },
+          "required": ["name", "url"]
+        }
+      },
+      "a2aAgentPricing": {
+        "type": "object",
+        "description": "Per-agent pricing overrides for A2A agents.",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "defaultCostPerCall": { "type": "number", "description": "Default cost per method call." },
+            "overrides": {
+              "type": "object",
+              "additionalProperties": { "type": "number" },
+              "description": "Per-method cost overrides (e.g. 'message/send': 0.002)."
+            }
+          }
+        }
+      },
+      "mcpServers": {
+        "type": "array",
+        "description": "Upstream MCP servers to proxy through BitRouter's MCP gateway.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Server name (used for grouping and identification)."
+            },
+            "command": {
+              "type": "string",
+              "description": "Command to spawn the MCP server (e.g. 'npx')."
+            },
+            "args": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Arguments for the server command."
+            },
+            "toolFilter": {
+              "type": "object",
+              "properties": {
+                "allow": { "type": "array", "items": { "type": "string" } },
+                "deny": { "type": "array", "items": { "type": "string" } }
+              },
+              "description": "Allow/deny list for tool names."
+            },
+            "paramRestrictions": {
+              "type": "object",
+              "properties": {
+                "rules": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "tool": { "type": "string" },
+                      "forbiddenParams": { "type": "array", "items": { "type": "string" } }
+                    },
+                    "required": ["tool"]
+                  }
+                }
+              },
+              "description": "Per-tool parameter restrictions."
+            }
+          },
+          "required": ["name", "command"]
+        }
+      },
+      "mcpGroups": {
+        "type": "object",
+        "description": "Named groups of MCP servers for access control.",
+        "additionalProperties": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "mcpServerPricing": {
+        "type": "object",
+        "description": "Per-server pricing overrides for MCP tools.",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "defaultCostPerCall": { "type": "number", "description": "Default cost per tool call." },
+            "overrides": {
+              "type": "object",
+              "additionalProperties": { "type": "number" },
+              "description": "Per-tool cost overrides."
+            }
+          }
+        }
+      },
+      "skills": {
+        "type": "array",
+        "description": "Skills to register with BitRouter's skills registry on startup.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string", "description": "Skill name." },
+            "description": { "type": "string", "description": "Skill description." },
+            "source": { "type": "string", "description": "Optional source URL." },
+            "requiredApis": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "provider": { "type": "string" }
+                },
+                "required": ["provider"]
+              },
+              "description": "APIs required by this skill."
+            }
+          },
+          "required": ["name", "description"]
+        }
+      },
       "mode": {
         "type": "string",
         "enum": ["byok", "cloud", "auto"],

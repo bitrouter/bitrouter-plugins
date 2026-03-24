@@ -21,6 +21,7 @@
  */
 
 import type {
+  AgentInfo,
   BitrouterState,
   ModelInfo,
   OpenClawPluginApi,
@@ -28,6 +29,8 @@ import type {
   PluginHookBeforeModelResolveResult,
   PluginHookAgentContext,
   RouteInfo,
+  SkillInfo,
+  ToolInfo,
 } from "./types.js";
 
 // ── Route table refresh ──────────────────────────────────────────────
@@ -113,6 +116,130 @@ export async function refreshModels(
   } catch (err) {
     // Don't clear existing models — they may still be valid.
     api.logger.warn(`Model catalog refresh failed: ${err}`);
+  }
+}
+
+// ── Agent discovery ──────────────────────────────────────────────────
+
+/**
+ * Fetch upstream A2A agents from BitRouter and cache in state.
+ * On failure, preserves existing cache.
+ */
+export async function refreshAgents(
+  state: BitrouterState,
+  api: OpenClawPluginApi
+): Promise<void> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5_000);
+
+    const res = await fetch(`${state.baseUrl}/v1/agents`, {
+      signal: controller.signal,
+      headers: state.apiToken
+        ? { Authorization: `Bearer ${state.apiToken}` }
+        : undefined,
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      // 404 means the endpoint doesn't exist (no agents configured) — not an error.
+      if (res.status !== 404) {
+        api.logger.warn(
+          `Failed to fetch agents: ${res.status} ${res.statusText}`
+        );
+      }
+      return;
+    }
+
+    const body = (await res.json()) as { agents: AgentInfo[] };
+    state.knownAgents = body.agents ?? [];
+    api.logger.info(
+      `Loaded ${state.knownAgents.length} agent(s) from BitRouter`
+    );
+  } catch (err) {
+    api.logger.warn(`Agent discovery failed: ${err}`);
+  }
+}
+
+// ── Unified tool discovery ──────────────────────────────────────────
+
+/**
+ * Fetch MCP tools + skills from BitRouter's unified /v1/tools endpoint.
+ * On failure, preserves existing cache.
+ */
+export async function refreshTools(
+  state: BitrouterState,
+  api: OpenClawPluginApi
+): Promise<void> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5_000);
+
+    const res = await fetch(`${state.baseUrl}/v1/tools`, {
+      signal: controller.signal,
+      headers: state.apiToken
+        ? { Authorization: `Bearer ${state.apiToken}` }
+        : undefined,
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      if (res.status !== 404) {
+        api.logger.warn(
+          `Failed to fetch tools: ${res.status} ${res.statusText}`
+        );
+      }
+      return;
+    }
+
+    const body = (await res.json()) as { tools: ToolInfo[] };
+    state.knownTools = body.tools ?? [];
+    api.logger.info(
+      `Loaded ${state.knownTools.length} tool(s) from BitRouter`
+    );
+  } catch (err) {
+    api.logger.warn(`Tool discovery failed: ${err}`);
+  }
+}
+
+// ── Skills discovery ────────────────────────────────────────────────
+
+/**
+ * Fetch registered skills from BitRouter's /v1/skills endpoint.
+ * On failure, preserves existing cache.
+ */
+export async function refreshSkills(
+  state: BitrouterState,
+  api: OpenClawPluginApi
+): Promise<void> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5_000);
+
+    const res = await fetch(`${state.baseUrl}/v1/skills`, {
+      signal: controller.signal,
+      headers: state.apiToken
+        ? { Authorization: `Bearer ${state.apiToken}` }
+        : undefined,
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      if (res.status !== 404) {
+        api.logger.warn(
+          `Failed to fetch skills: ${res.status} ${res.statusText}`
+        );
+      }
+      return;
+    }
+
+    const body = (await res.json()) as { skills: SkillInfo[] };
+    state.knownSkills = body.skills ?? [];
+    api.logger.info(
+      `Loaded ${state.knownSkills.length} skill(s) from BitRouter`
+    );
+  } catch (err) {
+    api.logger.warn(`Skills discovery failed: ${err}`);
   }
 }
 

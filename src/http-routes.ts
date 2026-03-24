@@ -17,7 +17,7 @@ import type { BitrouterState, OpenClawPluginApi } from "./types.js";
 // ── Proxy helper ─────────────────────────────────────────────────────
 
 /**
- * Proxy a request to BitRouter's HTTP API.
+ * Proxy a GET request to BitRouter's HTTP API.
  *
  * Forwards the request to `state.baseUrl + targetPath`, injecting the
  * API or admin token as needed. Streams the response back to the client.
@@ -26,7 +26,7 @@ async function proxyToBitrouter(
   state: BitrouterState,
   targetPath: string,
   res: ServerResponse,
-  useAdmin: boolean = false
+  options: { useAdmin?: boolean; method?: string; body?: string } = {},
 ): Promise<boolean> {
   if (!state.healthy) {
     res.writeHead(503, { "Content-Type": "application/json" });
@@ -35,14 +35,21 @@ async function proxyToBitrouter(
   }
 
   try {
-    const token = useAdmin ? state.adminToken : state.apiToken;
+    const token = options.useAdmin ? state.adminToken : state.apiToken;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
+    const timeout = setTimeout(() => controller.abort(), 30_000);
 
-    const upstream = await fetch(`${state.baseUrl}${targetPath}`, {
+    const fetchOpts: RequestInit = {
+      method: options.method ?? "GET",
       signal: controller.signal,
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    });
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(options.body ? { body: options.body } : {}),
+    };
+
+    const upstream = await fetch(`${state.baseUrl}${targetPath}`, fetchOpts);
     clearTimeout(timeout);
 
     // Forward status and content-type.
@@ -58,6 +65,18 @@ async function proxyToBitrouter(
   }
 
   return true;
+}
+
+/**
+ * Read the full request body from an IncomingMessage.
+ */
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks).toString()));
+    req.on("error", reject);
+  });
 }
 
 // ── Route registration ───────────────────────────────────────────────
@@ -109,5 +128,43 @@ export function registerHttpRoutes(
     match: "exact" as const,
     handler: async (_req: IncomingMessage, res: ServerResponse) =>
       proxyToBitrouter(state, "/v1/models", res),
+  });
+
+  // GET /bitrouter/agents — upstream A2A agents
+  api.registerHttpRoute({
+    path: "/bitrouter/agents",
+    auth: "plugin" as const,
+    match: "exact" as const,
+    handler: async (_req: IncomingMessage, res: ServerResponse) =>
+      proxyToBitrouter(state, "/v1/agents", res),
+  });
+
+  // GET /bitrouter/tools — unified MCP tools + skills
+  api.registerHttpRoute({
+    path: "/bitrouter/tools",
+    auth: "plugin" as const,
+    match: "exact" as const,
+    handler: async (_req: IncomingMessage, res: ServerResponse) =>
+      proxyToBitrouter(state, "/v1/tools", res),
+  });
+
+  // GET /bitrouter/skills — registered skills
+  api.registerHttpRoute({
+    path: "/bitrouter/skills",
+    auth: "plugin" as const,
+    match: "exact" as const,
+    handler: async (_req: IncomingMessage, res: ServerResponse) =>
+      proxyToBitrouter(state, "/v1/skills", res),
+  });
+
+  // POST /bitrouter/mcp — JSON-RPC proxy to MCP gateway
+  api.registerHttpRoute({
+    path: "/bitrouter/mcp",
+    auth: "plugin" as const,
+    match: "exact" as const,
+    handler: async (req: IncomingMessage, res: ServerResponse) => {
+      const body = await readBody(req);
+      return proxyToBitrouter(state, "/mcp", res, { method: "POST", body });
+    },
   });
 }

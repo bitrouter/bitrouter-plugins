@@ -11,6 +11,9 @@ function createMockState(overrides?: Partial<BitrouterState>): BitrouterState {
     baseUrl: "http://127.0.0.1:8787",
     knownRoutes: [],
     knownModels: [],
+    knownAgents: [],
+    knownTools: [],
+    knownSkills: [],
     healthCheckTimer: null,
     homeDir: "/tmp/bitrouter-test",
     metrics: null,
@@ -43,14 +46,14 @@ function createMockApi() {
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("registerHttpRoutes", () => {
-  it("registers four HTTP routes", () => {
+  it("registers eight HTTP routes", () => {
     const api = createMockApi();
     const state = createMockState();
 
     registerHttpRoutes(api, state);
 
     const mock = api.registerHttpRoute as ReturnType<typeof vi.fn>;
-    expect(mock).toHaveBeenCalledTimes(4);
+    expect(mock).toHaveBeenCalledTimes(8);
   });
 
   it("registers /bitrouter/status route", () => {

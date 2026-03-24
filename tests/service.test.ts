@@ -35,6 +35,9 @@ vi.mock("../src/health.js", () => ({
 
 vi.mock("../src/routing.js", () => ({
   refreshRoutes: vi.fn(() => Promise.resolve()),
+  refreshAgents: vi.fn(() => Promise.resolve()),
+  refreshTools: vi.fn(() => Promise.resolve()),
+  refreshSkills: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("../src/metrics.js", () => ({
@@ -72,10 +75,14 @@ function createMockState(): BitrouterState {
     baseUrl: "http://127.0.0.1:8787",
     knownRoutes: [],
     knownModels: [],
+    knownAgents: [],
+    knownTools: [],
+    knownSkills: [],
     healthCheckTimer: null,
     homeDir: "/tmp/bitrouter-test",
-    dynamicRoutes: new Map(),
     metrics: null,
+    apiToken: null,
+    adminToken: null,
     onboardingState: null,
   };
 }

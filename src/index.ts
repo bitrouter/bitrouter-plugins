@@ -43,7 +43,7 @@ import { DEFAULTS } from "./types.js";
 import { resolveHomeDir } from "./config.js";
 import { registerBitrouterService } from "./service.js";
 import { registerBitrouterProvider } from "./provider.js";
-import { registerModelInterceptor } from "./routing.js";
+import { registerModelInterceptor, refreshAgents, refreshTools, refreshSkills } from "./routing.js";
 import { registerPromptContext } from "./prompt-context.js";
 import { registerHttpRoutes } from "./http-routes.js";
 import { loadOnboardingState, isOnboardingComplete, needsOnboarding } from "./onboarding.js";
@@ -72,6 +72,9 @@ export function activate(api: OpenClawPluginApi): void {
     baseUrl: `http://${host}:${port}`,
     knownRoutes: [],
     knownModels: [],
+    knownAgents: [],
+    knownTools: [],
+    knownSkills: [],
     healthCheckTimer: null,
     homeDir: resolveHomeDir(stateDirRef.value),
     metrics: null,
@@ -190,6 +193,20 @@ export function activate(api: OpenClawPluginApi): void {
               sections.push(`    ${r.model} → ${r.provider} (${r.protocol})`);
             }
 
+            // Agents
+            sections.push(`  A2A Agents: ${state.knownAgents.length} upstream`);
+            for (const a of state.knownAgents) {
+              const skills = a.skills.length > 0
+                ? ` (${a.skills.map((s) => s.name).join(", ")})`
+                : "";
+              sections.push(`    ${a.id}${skills}`);
+            }
+
+            // Tools & Skills
+            const mcpTools = state.knownTools.filter((t) => t.provider !== "skill");
+            const skillTools = state.knownTools.filter((t) => t.provider === "skill");
+            sections.push(`  MCP Tools: ${mcpTools.length}, Skills: ${skillTools.length}`);
+
             // Wallet info
             if (onboarding?.wallet_address) {
               sections.push(`  Wallet: ${onboarding.wallet_address}`);
@@ -239,6 +256,77 @@ export function activate(api: OpenClawPluginApi): void {
               console.log(line);
             }
             console.log("\nRestart the gateway to apply: openclaw gateway restart\n");
+          });
+
+        // openclaw bitrouter agents — list upstream A2A agents
+        prog
+          .command("bitrouter agents")
+          .description("List upstream A2A agents proxied through BitRouter")
+          .action(async () => {
+            if (!state.healthy) {
+              console.log("\nBitRouter is not healthy. Start the gateway first.\n");
+              return;
+            }
+            await refreshAgents(state, api);
+            if (state.knownAgents.length === 0) {
+              console.log("\nNo upstream A2A agents configured.\n");
+              console.log("Configure agents in openclaw.json under plugins.entries.bitrouter.config.a2aAgents\n");
+              return;
+            }
+            console.log(`\nUpstream A2A Agents (${state.knownAgents.length}):\n`);
+            for (const agent of state.knownAgents) {
+              const streaming = agent.streaming ? " [streaming]" : "";
+              console.log(`  ${agent.id}${streaming}`);
+              if (agent.description) console.log(`    ${agent.description}`);
+              if (agent.skills.length > 0) {
+                console.log(`    Skills: ${agent.skills.map((s) => s.name).join(", ")}`);
+              }
+              if (agent.input_modes.length > 0) {
+                console.log(`    Input: ${agent.input_modes.join(", ")}  Output: ${agent.output_modes.join(", ")}`);
+              }
+            }
+            console.log();
+          });
+
+        // openclaw bitrouter tools — list MCP tools and skills
+        prog
+          .command("bitrouter tools")
+          .description("List MCP tools and registered skills available through BitRouter")
+          .action(async () => {
+            if (!state.healthy) {
+              console.log("\nBitRouter is not healthy. Start the gateway first.\n");
+              return;
+            }
+            await refreshTools(state, api);
+            await refreshSkills(state, api);
+
+            if (state.knownTools.length === 0) {
+              console.log("\nNo tools or skills registered.\n");
+              console.log("Configure MCP servers in openclaw.json under plugins.entries.bitrouter.config.mcpServers");
+              console.log("Configure skills under plugins.entries.bitrouter.config.skills\n");
+              return;
+            }
+
+            const mcpTools = state.knownTools.filter((t) => t.provider !== "skill");
+            const skillEntries = state.knownTools.filter((t) => t.provider === "skill");
+
+            if (mcpTools.length > 0) {
+              console.log(`\nMCP Tools (${mcpTools.length}):\n`);
+              for (const tool of mcpTools) {
+                console.log(`  ${tool.id} [${tool.provider}]`);
+                if (tool.description) console.log(`    ${tool.description}`);
+              }
+            }
+
+            if (skillEntries.length > 0) {
+              console.log(`\nSkills (${skillEntries.length}):\n`);
+              for (const skill of skillEntries) {
+                console.log(`  ${skill.id}`);
+                if (skill.description) console.log(`    ${skill.description}`);
+              }
+            }
+
+            console.log();
           });
       },
       { commands: ["bitrouter"] }
@@ -325,6 +413,37 @@ export function activate(api: OpenClawPluginApi): void {
     api.logger.info(
       `BitRouter plugin activated (${state.baseUrl}, mode=${config.mode}, upstream=${upstream})`
     );
+  }
+
+  // ── Synchronous probe for an already-running BitRouter instance ──
+  //
+  // Covers single-shot agent commands (openclaw agent --message) where
+  // the service start() lifecycle doesn't execute. Uses spawnSync+curl
+  // so routes are available before the first prompt hook fires (~10ms
+  // overhead for two localhost calls).
+  try {
+    const healthResult = spawnSync("curl", [
+      "-s", "--max-time", "1", `${state.baseUrl}/health`,
+    ]);
+    if (healthResult.status === 0) {
+      const health = JSON.parse(healthResult.stdout.toString());
+      if (health.status === "ok") {
+        state.healthy = true;
+
+        const routesResult = spawnSync("curl", [
+          "-s", "--max-time", "2", `${state.baseUrl}/v1/routes`,
+        ]);
+        if (routesResult.status === 0) {
+          const body = JSON.parse(routesResult.stdout.toString());
+          state.knownRoutes = body.routes ?? [];
+          api.logger.info(
+            `Loaded ${state.knownRoutes.length} route(s) from BitRouter (sync probe)`
+          );
+        }
+      }
+    }
+  } catch {
+    /* graceful — prompt just shows "0 routes" */
   }
 }
 
