@@ -1,0 +1,69 @@
+name: On BitRouter Release
+
+on:
+  repository_dispatch:
+    types: [bitrouter-release]
+
+jobs:
+  open-issue:
+    name: Open update issue
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Fetch release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${{ github.event.client_payload.tag }}" \
+            --repo bitrouter/bitrouter \
+            --json body \
+            --jq '.body' > release_notes.md
+
+      - name: Build issue body
+        run: |
+          TAG="${{ github.event.client_payload.tag }}"
+          cat > issue_body.md <<EOF
+          ## BitRouter $TAG released — plugin update needed
+
+          <details>
+          <summary>Release notes</summary>
+
+          $(cat release_notes.md)
+
+          </details>
+
+          ### Checklist
+
+          **Version pin**
+          - [ ] Update \`BITROUTER_VERSION\` in \`src/binary.ts\` to match new release
+          - [ ] Verify download URLs resolve for all platforms (macOS, Linux, Windows × arm64/x86_64)
+
+          **Interface compatibility**
+          - [ ] Review HTTP API surface changes — check \`src/http-routes.ts\` against new endpoints
+          - [ ] Review config schema changes — check \`src/config.ts\` against new config fields
+          - [ ] Review provider discovery changes — check \`src/discovery.ts\` if provider list changed
+          - [ ] Update \`openclaw.plugin.json\` schema if new config options were added
+
+          **Breaking changes** (if any)
+          - [ ] Add \`TODO\` comments in adapter code where fix is uncertain
+          - [ ] Update \`package.json\` version (minor bump for compatible, major for breaking)
+
+          **Tests**
+          - [ ] Run \`npm test\` to verify existing tests pass against new version
+          - [ ] Add tests for any new integration points
+
+          ---
+          *Opened automatically by [release-propagate](https://github.com/bitrouter/bitrouter/actions/workflows/release-propagate.yml)*
+          EOF
+
+      - name: Create issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --repo "${{ github.repository }}" \
+            --title "chore: update for BitRouter ${{ github.event.client_payload.tag }}" \
+            --body-file issue_body.md \
+            --label "chore,automation"
