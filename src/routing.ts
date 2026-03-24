@@ -24,9 +24,6 @@ import type {
   BitrouterState,
   ModelInfo,
   OpenClawPluginApi,
-  PluginHookBeforeModelResolveEvent,
-  PluginHookBeforeModelResolveResult,
-  PluginHookAgentContext,
   RouteInfo,
 } from "./types.js";
 
@@ -184,26 +181,20 @@ export function registerModelInterceptor(
   // BitRouter's routing table. For full routing, use `openclaw bitrouter
   // switch-all` which rewrites agent model configs directly with a
   // "bitrouter/" prefix — no hook-based interception needed.
-  api.on(
-    "before_model_resolve",
-    (
-      _event: PluginHookBeforeModelResolveEvent,
-      ctx: PluginHookAgentContext
-    ): PluginHookBeforeModelResolveResult | void => {
-      // Don't intercept if BitRouter isn't healthy.
-      if (!state.healthy) return;
+  api.on("before_model_resolve", (_event, ctx) => {
+    // Don't intercept if BitRouter isn't healthy.
+    if (!state.healthy) return;
 
-      const modelName = resolveModelName(api, ctx.agentId ?? "main");
+    const modelName = resolveModelName(api, ctx.agentId ?? "main");
 
-      // Only intercept models in BitRouter's routing table.
-      const isKnownRoute = state.knownRoutes.some(
-        (r) => r.model === modelName
-      );
+    // Only intercept models in BitRouter's routing table.
+    const isKnownRoute = state.knownRoutes.some(
+      (r) => r.model === modelName
+    );
 
-      if (isKnownRoute) {
-        return { providerOverride: "bitrouter", modelOverride: modelName };
-      }
-      // Unknown models fall through to OpenClaw's native resolution.
+    if (isKnownRoute) {
+      return { providerOverride: "bitrouter", modelOverride: modelName };
     }
-  );
+    // Unknown models fall through to OpenClaw's native resolution.
+  });
 }

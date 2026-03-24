@@ -73,7 +73,7 @@ describe("registerBitrouterProvider", () => {
     expect(call.envVars).toContain("OPENROUTER_API_KEY");
   });
 
-  it("includes discovery handler", () => {
+  it("includes catalog handler", () => {
     const api = createMockApi();
     const config: BitrouterPluginConfig = {};
     const state = createMockState();
@@ -81,9 +81,9 @@ describe("registerBitrouterProvider", () => {
     registerBitrouterProvider(api, config, state);
 
     const call = (api.registerProvider as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(call.discovery).toBeTruthy();
-    expect(call.discovery.order).toBe("late");
-    expect(typeof call.discovery.run).toBe("function");
+    expect(call.catalog).toBeTruthy();
+    expect(call.catalog.order).toBe("late");
+    expect(typeof call.catalog.run).toBe("function");
   });
 
   it("includes two auth methods with non-interactive support on byok", () => {

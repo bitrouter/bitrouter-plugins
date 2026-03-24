@@ -33,7 +33,7 @@ import type {
 } from "./types.js";
 import { DEFAULTS } from "./types.js";
 import { byokWizard, cloudSetupHint } from "./setup.js";
-import { buildDiscoveryHandler } from "./discovery.js";
+import { buildCatalogHandler } from "./discovery.js";
 import { PROVIDER_API_BASES, toEnvVarKey } from "./config.js";
 import { ensureAuthViaCli } from "./bitrouter-cli.js";
 import { detectProviders } from "./discovery.js";
@@ -235,22 +235,55 @@ export function registerBitrouterProvider(
       },
     ],
 
-    // Discovery: publish BitRouter's routes as model catalog entries.
+    // Catalog: publish BitRouter's routes as model catalog entries.
     // Runs during gateway startup and model catalog refresh.
-    // Uses ctx.resolveApiKey for auto-detection when BitRouter isn't healthy.
-    discovery: {
+    // Uses ctx.resolveProviderApiKey for auto-detection when BitRouter isn't healthy.
+    catalog: {
       order: "late" as const,
-      run: buildDiscoveryHandler(state, api),
+      run: buildCatalogHandler(state, api),
     },
 
-    // Format stored credentials for API requests.
-    // BitRouter uses JWT tokens, stored as api_key credentials.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    formatApiKey: (cred: any) => {
-      if (cred?.type === "api_key" && cred.key) {
-        return cred.key as string;
+    // Accept any model ID that BitRouter has a route for.
+    // This is the canonical proxy/router provider pattern.
+    resolveDynamicModel: (ctx) => {
+      if (!state.healthy) return null;
+
+      const modelId = ctx.modelId;
+      const isKnown = state.knownRoutes.some((r) => r.model === modelId);
+      if (!isKnown) return null;
+
+      const knownModel = state.knownModels.find((m) => m.id === modelId);
+
+      return {
+        id: modelId,
+        name: `${modelId} (via BitRouter)`,
+        provider: "bitrouter",
+        api: "openai-completions",
+        baseUrl: `${state.baseUrl}/v1`,
+        reasoning: knownModel?.reasoning ?? false,
+        input: (knownModel?.input ?? ["text"]) as ("text" | "image")[],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: knownModel?.context_window ?? 128_000,
+        maxTokens: knownModel?.max_tokens ?? 16_384,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any;
+    },
+
+    // Exchange stored credentials into a runtime JWT before inference.
+    prepareRuntimeAuth: async () => {
+      const token = state.apiToken;
+      if (!token) return null;
+      return {
+        apiKey: token,
+        baseUrl: `${state.baseUrl}/v1`,
+      };
+    },
+
+    // Fallback credential formatter for direct auth profile access.
+    formatApiKey: (cred) => {
+      if (cred && "type" in cred && cred.type === "api_key" && "key" in cred) {
+        return (cred as { key: string }).key;
       }
-      // Fallback: use the cached token from state (minted at service startup).
       return state.apiToken ?? "";
     },
   });

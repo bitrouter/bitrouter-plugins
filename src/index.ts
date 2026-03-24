@@ -33,11 +33,11 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import type {
   BitrouterPluginConfig,
   BitrouterState,
   OpenClawPluginApi,
-  OpenClawPluginDefinition,
 } from "./types.js";
 import { DEFAULTS } from "./types.js";
 import { resolveHomeDir } from "./config.js";
@@ -329,13 +329,11 @@ export function activate(api: OpenClawPluginApi): void {
 }
 
 // OpenClaw plugin definition — the default export.
-const plugin: OpenClawPluginDefinition = {
+export default definePluginEntry({
   id: "bitrouter",
   name: "BitRouter",
   description:
     "Route LLM requests through BitRouter — a local multi-provider proxy with " +
     "failover, load balancing, and unified API key management.",
   register: activate,
-};
-
-export default plugin;
+});

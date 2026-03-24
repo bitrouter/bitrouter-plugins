@@ -15,20 +15,7 @@ import type {
   BitrouterPluginConfig,
   BitrouterState,
   OpenClawPluginApi,
-  PluginHookAgentContext,
 } from "./types.js";
-
-// ── Hook event/result types (structural match to SDK) ────────────────
-
-type BeforePromptBuildEvent = {
-  prompt: string;
-  messages?: unknown[];
-};
-
-type BeforePromptBuildResult = {
-  prependContext?: string;
-  appendSystemContext?: string;
-};
 
 // ── Static context (cacheable across turns) ──────────────────────────
 
@@ -74,16 +61,10 @@ export function registerPromptContext(
   config: BitrouterPluginConfig,
   state: BitrouterState
 ): void {
-  api.on(
-    "before_prompt_build",
-    (
-      _event: BeforePromptBuildEvent,
-      _ctx: PluginHookAgentContext
-    ): BeforePromptBuildResult => {
-      return {
-        appendSystemContext: STATIC_CONTEXT,
-        prependContext: buildDynamicContext(config, state),
-      };
-    }
-  );
+  api.on("before_prompt_build", (_event, _ctx) => {
+    return {
+      appendSystemContext: STATIC_CONTEXT,
+      prependContext: buildDynamicContext(config, state),
+    };
+  });
 }

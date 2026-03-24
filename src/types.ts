@@ -286,84 +286,22 @@ export interface BitrouterState {
 //
 // The plugin uses the real OpenClaw SDK types directly.
 // Re-exported here so all modules can import from "./types.js".
-//
-// Note: only types that are re-exported through the SDK barrel are listed here.
-// Types defined in the SDK but not in its barrel are defined locally below.
 
 export type {
   OpenClawPluginApi,
   OpenClawPluginServiceContext,
   OpenClawPluginService,
+  OpenClawPluginDefinition,
   PluginLogger,
   ProviderAuthContext,
   ProviderAuthResult,
-} from "openclaw/plugin-sdk";
-
-// ── SDK types for provider discovery & non-interactive auth ──────────
-//
-// These types exist in the SDK's .d.ts files but are not re-exported
-// through the openclaw/plugin-sdk barrel. We define structural
-// equivalents here based on the SDK's declarations.
-
-/**
- * Non-interactive auth context passed to runNonInteractive on ProviderAuthMethod.
- *
- * We type this loosely to avoid coupling to the SDK's internal types.
- * The handler only uses `resolveApiKey` and `workspaceDir`.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type ProviderAuthMethodNonInteractiveContext = Record<string, any> & {
-  workspaceDir?: string;
-  resolveApiKey: (params: {
-    provider: string;
-    flagValue?: string;
-    flagName: `--${string}`;
-    envVar: string;
-    envVarName?: string;
-    allowProfile?: boolean;
-    required?: boolean;
-  }) => Promise<{ key: string; source: string; envVarName?: string } | null>;
-};
-
-// ── Locally-defined types matching SDK internals ─────────────────────
-//
-// These types exist in the SDK's .d.ts files but are not re-exported
-// through the openclaw/plugin-sdk barrel. We define structural
-// equivalents here based on the SDK's declarations.
-
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
-
-/** Plugin definition — the default export shape. */
-export type OpenClawPluginDefinition = {
-  id?: string;
-  name?: string;
-  description?: string;
-  version?: string;
-  register?: (api: OpenClawPluginApi) => void | Promise<void>;
-  activate?: (api: OpenClawPluginApi) => void | Promise<void>;
-};
-
-/** Hook event for before_model_resolve. */
-export type PluginHookBeforeModelResolveEvent = {
-  prompt: string;
-};
-
-/** Hook result for before_model_resolve. */
-export type PluginHookBeforeModelResolveResult = {
-  modelOverride?: string;
-  providerOverride?: string;
-};
-
-/** Agent context passed to hooks. */
-export type PluginHookAgentContext = {
-  agentId?: string;
-  sessionKey?: string;
-  sessionId?: string;
-  workspaceDir?: string;
-  messageProvider?: string;
-  trigger?: string;
-  channelId?: string;
-};
+  ProviderAuthMethodNonInteractiveContext,
+  ProviderCatalogContext,
+  ProviderResolveDynamicModelContext,
+  ProviderRuntimeModel,
+  ProviderPrepareRuntimeAuthContext,
+  ProviderPreparedRuntimeAuth,
+} from "openclaw/plugin-sdk/plugin-entry";
 
 // ── Config defaults ──────────────────────────────────────────────────
 

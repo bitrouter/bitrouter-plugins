@@ -174,23 +174,33 @@
       }
     }
   },
-  "providerAuthEnvVars": [
-    "BITROUTER_API_KEY",
-    "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY",
-    "OPENROUTER_API_KEY"
-  ],
+  "providerAuthEnvVars": {
+    "bitrouter": ["BITROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"]
+  },
   "providerAuthChoices": [
     {
-      "id": "byok",
-      "label": "BYOK — bring your own API key",
-      "hint": "Route through OpenRouter, OpenAI, Anthropic, or any compatible API",
-      "cliFlag": "--bitrouter-api-key"
+      "provider": "bitrouter",
+      "method": "cloud",
+      "choiceId": "bitrouter-cloud",
+      "choiceLabel": "BitRouter Cloud (wallet)",
+      "choiceHint": "Pay-per-use via Swig wallet — no API keys needed",
+      "groupId": "bitrouter",
+      "groupLabel": "BitRouter",
+      "groupHint": "Cloud wallet + BYOK"
     },
     {
-      "id": "cloud",
-      "label": "BitRouter Cloud (wallet setup)",
-      "hint": "Set up Swig wallet for x402 payments via interactive CLI"
+      "provider": "bitrouter",
+      "method": "byok",
+      "choiceId": "bitrouter-byok",
+      "choiceLabel": "BYOK — bring your own API key",
+      "choiceHint": "Route through OpenRouter, OpenAI, Anthropic, or any compatible API",
+      "groupId": "bitrouter",
+      "groupLabel": "BitRouter",
+      "groupHint": "Cloud wallet + BYOK",
+      "optionKey": "bitrouterApiKey",
+      "cliFlag": "--bitrouter-api-key",
+      "cliOption": "--bitrouter-api-key <key>",
+      "cliDescription": "Upstream provider API key for BYOK mode"
     }
   ],
   "uiHints": {

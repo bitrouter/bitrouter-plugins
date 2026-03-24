@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { buildDiscoveryHandler } from "../src/discovery.js";
+import { buildCatalogHandler } from "../src/discovery.js";
 import type { BitrouterState, ModelInfo, RouteInfo } from "../src/types.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -47,33 +47,37 @@ const MODELS: ModelInfo[] = [
 ];
 
 /**
- * Build a mock discovery context with resolveApiKey that returns
+ * Build a mock catalog context with resolveProviderApiKey that returns
  * keys for the given provider names.
  */
-function mockDiscoveryCtx(
+function mockCatalogCtx(
   availableProviders: string[] = []
-): { resolveApiKey: ReturnType<typeof vi.fn> } {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): any {
   return {
-    resolveApiKey: vi.fn(async (params: { provider: string }) => {
-      if (availableProviders.includes(params.provider)) {
-        return {
-          key: `sk-test-${params.provider}`,
-          source: "env",
-          envVarName: `${params.provider.toUpperCase()}_API_KEY`,
-        };
+    config: {},
+    env: process.env,
+    resolveProviderApiKey: vi.fn((providerId: string) => {
+      if (availableProviders.includes(providerId)) {
+        return { apiKey: `sk-test-${providerId}` };
       }
-      return null;
+      return { apiKey: undefined };
     }),
+    resolveProviderAuth: vi.fn(() => ({
+      apiKey: undefined,
+      mode: "none" as const,
+      source: "none" as const,
+    })),
   };
 }
 
 // ── Tests: healthy BitRouter (existing behavior) ─────────────────────
 
-describe("buildDiscoveryHandler — healthy BitRouter", () => {
+describe("buildCatalogHandler — healthy BitRouter", () => {
   it("returns models from knownModels when healthy", async () => {
     const state = createMockState({ healthy: true, knownModels: MODELS });
-    const handler = buildDiscoveryHandler(state);
-    const result = await handler({});
+    const handler = buildCatalogHandler(state);
+    const result = await handler({} as any);
 
     expect(result.provider.models).toHaveLength(2);
     const ids = result.provider.models.map((m: Record<string, unknown>) => m.id);
@@ -87,8 +91,8 @@ describe("buildDiscoveryHandler — healthy BitRouter", () => {
       knownRoutes: ROUTES,
       knownModels: MODELS,
     });
-    const handler = buildDiscoveryHandler(state);
-    const result = await handler({});
+    const handler = buildCatalogHandler(state);
+    const result = await handler({} as any);
 
     expect(result.provider.models).toHaveLength(2);
     // Should use model IDs from /v1/models, not routes.
@@ -102,8 +106,8 @@ describe("buildDiscoveryHandler — healthy BitRouter", () => {
       healthy: true,
       knownModels: MODELS,
     });
-    const handler = buildDiscoveryHandler(state);
-    const result = await handler({});
+    const handler = buildCatalogHandler(state);
+    const result = await handler({} as any);
 
     const gpt4o = result.provider.models.find(
       (m: Record<string, unknown>) => m.id === "gpt-4o"
@@ -125,8 +129,8 @@ describe("buildDiscoveryHandler — healthy BitRouter", () => {
       healthy: true,
       knownModels: [{ id: "gpt-4o", owned_by: "openai" }],
     });
-    const handler = buildDiscoveryHandler(state);
-    const result = await handler({});
+    const handler = buildCatalogHandler(state);
+    const result = await handler({} as any);
 
     expect(result.provider.models[0].name).toContain("BitRouter");
     expect(result.provider.models[0].name).toContain("openai");
@@ -136,8 +140,8 @@ describe("buildDiscoveryHandler — healthy BitRouter", () => {
 
   it("falls back to knownRoutes when knownModels is empty", async () => {
     const state = createMockState({ healthy: true, knownRoutes: ROUTES });
-    const handler = buildDiscoveryHandler(state);
-    const result = await handler({});
+    const handler = buildCatalogHandler(state);
+    const result = await handler({} as any);
 
     expect(result).toBeTruthy();
     expect(result.provider.baseUrl).toBe("http://127.0.0.1:8787/v1");
@@ -149,8 +153,8 @@ describe("buildDiscoveryHandler — healthy BitRouter", () => {
       { model: "claude", provider: "anthropic", protocol: "anthropic" },
     ];
     const state = createMockState({ healthy: true, knownRoutes: routes });
-    const handler = buildDiscoveryHandler(state);
-    const result = await handler({});
+    const handler = buildCatalogHandler(state);
+    const result = await handler({} as any);
 
     expect(result.provider.models[0].contextWindow).toBe(200_000);
     expect(result.provider.models[0].maxTokens).toBe(8_192);
@@ -164,8 +168,8 @@ describe("buildDiscoveryHandler — healthy BitRouter", () => {
       { id: "gpt-4o", owned_by: "openrouter", context_window: 128_000 },
     ];
     const state = createMockState({ healthy: true, knownModels: models });
-    const handler = buildDiscoveryHandler(state);
-    const result = await handler({});
+    const handler = buildCatalogHandler(state);
+    const result = await handler({} as any);
 
     expect(result.provider.models).toHaveLength(1);
     // First entry wins.
@@ -178,36 +182,37 @@ describe("buildDiscoveryHandler — healthy BitRouter", () => {
       { model: "gpt-4o", provider: "openrouter", protocol: "openai" },
     ];
     const state = createMockState({ healthy: true, knownRoutes: routes });
-    const handler = buildDiscoveryHandler(state);
-    const result = await handler({});
+    const handler = buildCatalogHandler(state);
+    const result = await handler({} as any);
 
     expect(result.provider.models).toHaveLength(1);
     expect(result.provider.models[0].name).toContain("openai");
   });
 });
 
-// ── Tests: auto-detection via ctx.resolveApiKey ──────────────────────
+// ── Tests: auto-detection via ctx.resolveProviderApiKey ───────────────
 
-describe("buildDiscoveryHandler — auto-detect fallback", () => {
-  it("returns null when unhealthy and ctx has no resolveApiKey", async () => {
+describe("buildCatalogHandler — auto-detect fallback", () => {
+  it("returns null when unhealthy and ctx has no resolveProviderApiKey", async () => {
     const state = createMockState({ healthy: false, knownRoutes: ROUTES });
-    const handler = buildDiscoveryHandler(state);
-    const result = await handler({});
+    const handler = buildCatalogHandler(state);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await handler({} as any);
     expect(result).toBeNull();
   });
 
   it("returns null when unhealthy and no providers detected", async () => {
     const state = createMockState({ healthy: false });
-    const ctx = mockDiscoveryCtx([]); // no providers available
-    const handler = buildDiscoveryHandler(state);
+    const ctx = mockCatalogCtx([]); // no providers available
+    const handler = buildCatalogHandler(state);
     const result = await handler(ctx);
     expect(result).toBeNull();
   });
 
-  it("auto-detects providers via ctx.resolveApiKey when unhealthy", async () => {
+  it("auto-detects providers via ctx.resolveProviderApiKey when unhealthy", async () => {
     const state = createMockState({ healthy: false });
-    const ctx = mockDiscoveryCtx(["openai", "anthropic"]);
-    const handler = buildDiscoveryHandler(state);
+    const ctx = mockCatalogCtx(["openai", "anthropic"]);
+    const handler = buildCatalogHandler(state);
     const result = await handler(ctx);
 
     expect(result).toBeTruthy();
@@ -221,8 +226,8 @@ describe("buildDiscoveryHandler — auto-detect fallback", () => {
 
   it("populates state.autoDetectedProviders as side effect", async () => {
     const state = createMockState({ healthy: false });
-    const ctx = mockDiscoveryCtx(["openai"]);
-    const handler = buildDiscoveryHandler(state);
+    const ctx = mockCatalogCtx(["openai"]);
+    const handler = buildCatalogHandler(state);
     await handler(ctx);
 
     expect(state.autoDetectedProviders).toHaveLength(1);
@@ -230,16 +235,16 @@ describe("buildDiscoveryHandler — auto-detect fallback", () => {
     expect(state.autoDetectedProviders![0].apiKey).toBe("sk-test-openai");
   });
 
-  it("calls ctx.resolveApiKey for each well-known provider", async () => {
+  it("calls ctx.resolveProviderApiKey for each well-known provider", async () => {
     const state = createMockState({ healthy: false });
-    const ctx = mockDiscoveryCtx([]);
-    const handler = buildDiscoveryHandler(state);
+    const ctx = mockCatalogCtx([]);
+    const handler = buildCatalogHandler(state);
     await handler(ctx);
 
     // Should have been called for at least the well-known providers.
-    expect(ctx.resolveApiKey).toHaveBeenCalled();
-    const calledProviders = ctx.resolveApiKey.mock.calls.map(
-      (c: Array<{ provider: string }>) => c[0].provider
+    expect(ctx.resolveProviderApiKey).toHaveBeenCalled();
+    const calledProviders = ctx.resolveProviderApiKey.mock.calls.map(
+      (c: string[]) => c[0]
     );
     expect(calledProviders).toContain("openai");
     expect(calledProviders).toContain("anthropic");
@@ -248,22 +253,22 @@ describe("buildDiscoveryHandler — auto-detect fallback", () => {
 
   it("prefers healthy BitRouter data over auto-detect", async () => {
     const state = createMockState({ healthy: true, knownModels: MODELS });
-    const ctx = mockDiscoveryCtx(["openai"]);
-    const handler = buildDiscoveryHandler(state);
+    const ctx = mockCatalogCtx(["openai"]);
+    const handler = buildCatalogHandler(state);
     const result = await handler(ctx);
 
     // Should return real models, not auto-detected placeholders.
     const ids = result.provider.models.map((m: Record<string, unknown>) => m.id);
     expect(ids).toContain("gpt-4o");
     expect(ids).not.toContain("openai/auto");
-    // resolveApiKey should not have been called.
-    expect(ctx.resolveApiKey).not.toHaveBeenCalled();
+    // resolveProviderApiKey should not have been called.
+    expect(ctx.resolveProviderApiKey).not.toHaveBeenCalled();
   });
 
   it("falls through to auto-detect when healthy but no models/routes", async () => {
     const state = createMockState({ healthy: true }); // no models or routes
-    const ctx = mockDiscoveryCtx(["anthropic"]);
-    const handler = buildDiscoveryHandler(state);
+    const ctx = mockCatalogCtx(["anthropic"]);
+    const handler = buildCatalogHandler(state);
     const result = await handler(ctx);
 
     expect(result).toBeTruthy();
@@ -273,8 +278,8 @@ describe("buildDiscoveryHandler — auto-detect fallback", () => {
 
   it("uses protocol defaults for auto-detected provider entries", async () => {
     const state = createMockState({ healthy: false });
-    const ctx = mockDiscoveryCtx(["anthropic"]);
-    const handler = buildDiscoveryHandler(state);
+    const ctx = mockCatalogCtx(["anthropic"]);
+    const handler = buildCatalogHandler(state);
     const result = await handler(ctx);
 
     const model = result.provider.models[0];
@@ -282,15 +287,23 @@ describe("buildDiscoveryHandler — auto-detect fallback", () => {
     expect(model.maxTokens).toBe(8_192);
   });
 
-  it("returns null on resolveApiKey errors (best-effort)", async () => {
+  it("returns null on resolveProviderApiKey errors (best-effort)", async () => {
     const state = createMockState({ healthy: false });
     const ctx = {
-      resolveApiKey: vi.fn(async () => {
+      config: {},
+      env: process.env,
+      resolveProviderApiKey: vi.fn(() => {
         throw new Error("resolver broke");
       }),
+      resolveProviderAuth: vi.fn(() => ({
+        apiKey: undefined,
+        mode: "none" as const,
+        source: "none" as const,
+      })),
     };
-    const handler = buildDiscoveryHandler(state);
-    const result = await handler(ctx);
+    const handler = buildCatalogHandler(state);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await handler(ctx as any);
     expect(result).toBeNull();
   });
 });

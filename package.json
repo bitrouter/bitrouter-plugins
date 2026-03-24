@@ -21,13 +21,13 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "yaml": "^2.4.0"
+    "yaml": "^2.8.3"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "openclaw": "^2026.3.13",
-    "typescript": "^5.4.0",
-    "vitest": "^2.0.0"
+    "@types/node": "^20.19.37",
+    "openclaw": "^2026.3.23",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
   },
   "engines": {
     "node": ">=18"
@@ -36,6 +36,9 @@
     "id": "bitrouter",
     "extensions": [
       "./dist/index.js"
+    ],
+    "providers": [
+      "bitrouter"
     ]
   },
   "license": "MIT",
@@ -52,5 +55,6 @@
     "openai",
     "anthropic",
     "google"
-  ]
+  ],
+  "packageManager": "pnpm@10.28.2+sha512.41872f037ad22f7348e3b1debbaf7e867cfd448f2726d9cf74c08f19507c31d2c8e7a11525b983febc2df640b5438dee6023ebb1f84ed43cc2d654d2bc326264"
 }
