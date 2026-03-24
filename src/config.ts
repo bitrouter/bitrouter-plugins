@@ -244,7 +244,7 @@ export function generateConfig(
       description: skill.description,
       ...(skill.source && { source: skill.source }),
       ...(skill.requiredApis && {
-        required_apis: skill.requiredApis.map((a) => a.provider),
+        required_apis: skill.requiredApis.map((a) => ({ provider: a.provider })),
       }),
     }));
   }
