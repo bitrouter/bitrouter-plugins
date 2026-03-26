@@ -24,10 +24,10 @@
     "yaml": "^2.8.3"
   },
   "devDependencies": {
-    "@types/node": "^20.19.37",
-    "openclaw": "^2026.3.23",
-    "typescript": "^5.9.3",
-    "vitest": "^2.1.9"
+    "@types/node": "^25.5.0",
+    "openclaw": "^2026.3.24",
+    "typescript": "^6.0.2",
+    "vitest": "^3.2.4"
   },
   "engines": {
     "node": ">=18"
