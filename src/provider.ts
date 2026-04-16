@@ -2,22 +2,16 @@
  * Provider registration — registers "bitrouter" as an LLM provider in
  * OpenClaw, pointing to the local BitRouter instance.
  *
- * Three auth methods are offered:
+ * Auth method:
  *
- *   byok  — Bring Your Own Key: interactive wizard that collects an
- *            upstream provider (OpenRouter, OpenAI, Anthropic, or custom)
- *            and an API key. Persists mode + byok config via configPatch.
- *
- *   cloud — BitRouter Cloud stub (coming soon). Shows a "coming soon"
- *            message and exits without making changes.
- *
- *   byok (non-interactive) — Headless/CI flow that detects API keys
- *            from environment variables and auto-configures BitRouter.
+ *   byok  — Delegates to `bitrouter auth login` via the native CLI
+ *            (system binary on PATH or plugin's bundled copy). The CLI
+ *            handles provider selection, API key entry, and OAuth flows.
+ *            A non-interactive path detects API keys from env vars for
+ *            headless/CI environments.
  *
  * The wizard is triggered by:
  *   openclaw models auth login --provider bitrouter
- *   openclaw models auth login --provider bitrouter --method byok
- *   openclaw models auth login --provider bitrouter --method cloud
  *
  * Provider features:
  *   - discovery: publishes BitRouter's routing table into the model catalog
@@ -32,7 +26,7 @@ import type {
   ProviderAuthMethodNonInteractiveContext,
 } from "./types.js";
 import { DEFAULTS } from "./types.js";
-import { byokWizard, cloudSetupHint } from "./setup.js";
+import { byokWizard } from "./setup.js";
 import { buildCatalogHandler } from "./discovery.js";
 import { PROVIDER_API_BASES, toEnvVarKey } from "./config.js";
 import { ensureAuthViaCli } from "./bitrouter-cli.js";
@@ -215,8 +209,8 @@ export function registerBitrouterProvider(
     auth: [
       {
         id: "byok",
-        label: "BYOK — bring your own API key",
-        hint: "Route through OpenRouter, OpenAI, Anthropic, or any compatible API",
+        label: "Set up BitRouter provider authentication",
+        hint: "Runs `bitrouter auth login` to configure providers (API keys, OAuth, etc.)",
         kind: "api_key" as const,
         run: byokWizard,
 
@@ -228,13 +222,6 @@ export function registerBitrouterProvider(
             ctx as ProviderAuthMethodNonInteractiveContext,
             api,
           ),
-      },
-      {
-        id: "cloud",
-        label: "BitRouter Cloud (wallet setup)",
-        hint: "Set up Swig wallet for x402 payments via interactive CLI",
-        kind: "oauth" as const,
-        run: cloudSetupHint,
       },
     ],
 

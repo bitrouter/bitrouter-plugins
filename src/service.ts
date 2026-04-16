@@ -94,15 +94,17 @@ export function registerBitrouterService(
       // Load onboarding state from onboarding.json (written by Rust CLI).
       state.onboardingState = loadOnboardingState(state.homeDir);
 
-      // Ensure a bitrouter account exists and mint JWTs for authenticating
-      // with the local BitRouter instance (API + admin scopes).
+      // Ensure an OWS wallet exists and mint a JWT for authenticating
+      // with the local BitRouter instance.
       try {
-        const tokens = await ensureAuthViaCli(ctx.stateDir, state.homeDir);
-        state.apiToken = tokens.apiToken;
-        state.adminToken = tokens.adminToken;
-        api.logger.info("Auth tokens ready (via bitrouter CLI)");
+        const { apiToken } = await ensureAuthViaCli(
+          ctx.stateDir,
+          state.homeDir,
+        );
+        state.apiToken = apiToken;
+        api.logger.info("Auth token ready (via bitrouter CLI)");
       } catch (err) {
-        api.logger.warn(`Failed to generate auth tokens: ${err}`);
+        api.logger.warn(`Failed to generate auth token: ${err}`);
       }
 
       // 2. Find the binary (downloads from GitHub releases if not cached).

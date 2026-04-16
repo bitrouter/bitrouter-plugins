@@ -26,7 +26,7 @@ async function proxyToBitrouter(
   state: BitrouterState,
   targetPath: string,
   res: ServerResponse,
-  options: { useAdmin?: boolean; method?: string; body?: string } = {},
+  options: { method?: string; body?: string } = {},
 ): Promise<boolean> {
   if (!state.healthy) {
     res.writeHead(503, { "Content-Type": "application/json" });
@@ -35,7 +35,7 @@ async function proxyToBitrouter(
   }
 
   try {
-    const token = options.useAdmin ? state.adminToken : state.apiToken;
+    const token = state.apiToken;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
 
@@ -53,7 +53,8 @@ async function proxyToBitrouter(
     clearTimeout(timeout);
 
     // Forward status and content-type.
-    const contentType = upstream.headers.get("content-type") ?? "application/json";
+    const contentType =
+      upstream.headers.get("content-type") ?? "application/json";
     res.writeHead(upstream.status, { "Content-Type": contentType });
 
     // Stream body.
@@ -92,7 +93,7 @@ function readBody(req: IncomingMessage): Promise<string> {
  */
 export function registerHttpRoutes(
   api: OpenClawPluginApi,
-  state: BitrouterState
+  state: BitrouterState,
 ): void {
   // GET /bitrouter/status — daemon health check
   api.registerHttpRoute({

@@ -137,7 +137,9 @@ export interface McpServerConfigEntry {
   command: string;
   args?: string[];
   toolFilter?: { allow?: string[]; deny?: string[] };
-  paramRestrictions?: { rules?: Array<{ tool: string; forbiddenParams?: string[] }> };
+  paramRestrictions?: {
+    rules?: Array<{ tool: string; forbiddenParams?: string[] }>;
+  };
 }
 
 /** Skill configuration entry. */
@@ -156,7 +158,9 @@ export interface PricingConfig {
 }
 
 /** Agent model config — mirrors the SDK's model field shape. */
-export type AgentModelConfig = string | { primary?: string; fallbacks?: string[] };
+export type AgentModelConfig =
+  | string
+  | { primary?: string; fallbacks?: string[] };
 
 /** A single provider entry in the plugin config (camelCase, TS-side). */
 export interface ProviderEntry {
@@ -314,7 +318,11 @@ export interface MetricsResponse {
 export interface GuardrailPluginConfig {
   enabled?: boolean;
   disabledPatterns?: string[];
-  customPatterns?: Array<{ name: string; regex: string; direction?: "upgoing" | "downgoing" | "both" }>;
+  customPatterns?: Array<{
+    name: string;
+    regex: string;
+    direction?: "upgoing" | "downgoing" | "both";
+  }>;
   upgoing?: Record<string, "warn" | "redact" | "block">;
   downgoing?: Record<string, "warn" | "redact" | "block">;
 }
@@ -382,8 +390,6 @@ export interface BitrouterState {
   metrics: MetricsResponse | null;
   /** JWT token for API-scope requests to the local BitRouter instance. */
   apiToken: string | null;
-  /** JWT token for admin-scope requests (24h expiry, auto-refreshed). */
-  adminToken: string | null;
   /** Providers detected via env var sniffing in auto mode. */
   autoDetectedProviders?: import("./discovery.js").DetectedProvider[];
   /** Onboarding state loaded from onboarding.json (null if not present). */

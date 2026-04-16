@@ -146,7 +146,6 @@ describe("Integration: plugin against live BitRouter", () => {
         homeDir: "/tmp/test",
         metrics: null,
         apiToken: null,
-        adminToken: null,
         onboardingState: null,
       };
 
@@ -167,7 +166,6 @@ describe("Integration: plugin against live BitRouter", () => {
         homeDir: "/tmp/test",
         metrics: null,
         apiToken: null,
-        adminToken: null,
         onboardingState: null,
       };
 
@@ -193,7 +191,6 @@ describe("Integration: plugin against live BitRouter", () => {
         homeDir: "/tmp/test",
         metrics: null,
         apiToken: null,
-        adminToken: null,
         onboardingState: null,
       };
 
@@ -227,7 +224,6 @@ describe("Integration: plugin against live BitRouter", () => {
         homeDir: "/tmp/test",
         metrics: null,
         apiToken: null,
-        adminToken: null,
         onboardingState: null,
       };
 
@@ -261,7 +257,6 @@ describe("Integration: plugin against live BitRouter", () => {
         homeDir: "/tmp/test",
         metrics: null,
         apiToken: null,
-        adminToken: null,
         onboardingState: null,
       };
 
@@ -288,7 +283,6 @@ describe("Integration: plugin against live BitRouter", () => {
         homeDir: "/tmp/test",
         metrics: null,
         apiToken: null,
-        adminToken: null,
         onboardingState: null,
       };
 

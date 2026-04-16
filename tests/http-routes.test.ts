@@ -18,7 +18,6 @@ function createMockState(overrides?: Partial<BitrouterState>): BitrouterState {
     homeDir: "/tmp/bitrouter-test",
     metrics: null,
     apiToken: "test-api-token",
-    adminToken: "test-admin-token",
     onboardingState: null,
     ...overrides,
   };
@@ -63,7 +62,9 @@ describe("registerHttpRoutes", () => {
     registerHttpRoutes(api, state);
 
     const mock = api.registerHttpRoute as ReturnType<typeof vi.fn>;
-    const paths = mock.mock.calls.map((c: unknown[]) => (c[0] as { path: string }).path);
+    const paths = mock.mock.calls.map(
+      (c: unknown[]) => (c[0] as { path: string }).path,
+    );
     expect(paths).toContain("/bitrouter/status");
   });
 
@@ -74,7 +75,9 @@ describe("registerHttpRoutes", () => {
     registerHttpRoutes(api, state);
 
     const mock = api.registerHttpRoute as ReturnType<typeof vi.fn>;
-    const paths = mock.mock.calls.map((c: unknown[]) => (c[0] as { path: string }).path);
+    const paths = mock.mock.calls.map(
+      (c: unknown[]) => (c[0] as { path: string }).path,
+    );
     expect(paths).toContain("/bitrouter/metrics");
   });
 
@@ -85,7 +88,9 @@ describe("registerHttpRoutes", () => {
     registerHttpRoutes(api, state);
 
     const mock = api.registerHttpRoute as ReturnType<typeof vi.fn>;
-    const paths = mock.mock.calls.map((c: unknown[]) => (c[0] as { path: string }).path);
+    const paths = mock.mock.calls.map(
+      (c: unknown[]) => (c[0] as { path: string }).path,
+    );
     expect(paths).toContain("/bitrouter/routes");
   });
 
@@ -96,7 +101,9 @@ describe("registerHttpRoutes", () => {
     registerHttpRoutes(api, state);
 
     const mock = api.registerHttpRoute as ReturnType<typeof vi.fn>;
-    const paths = mock.mock.calls.map((c: unknown[]) => (c[0] as { path: string }).path);
+    const paths = mock.mock.calls.map(
+      (c: unknown[]) => (c[0] as { path: string }).path,
+    );
     expect(paths).toContain("/bitrouter/models");
   });
 
@@ -132,7 +139,7 @@ describe("registerHttpRoutes", () => {
 
     const mock = api.registerHttpRoute as ReturnType<typeof vi.fn>;
     const statusRoute = mock.mock.calls.find(
-      (c: unknown[]) => (c[0] as { path: string }).path === "/bitrouter/status"
+      (c: unknown[]) => (c[0] as { path: string }).path === "/bitrouter/status",
     );
     const handler = (statusRoute![0] as { handler: Function }).handler;
 
@@ -145,7 +152,7 @@ describe("registerHttpRoutes", () => {
 
     expect(res.writeHead).toHaveBeenCalledWith(503, expect.any(Object));
     expect(res.end).toHaveBeenCalledWith(
-      expect.stringContaining("not healthy")
+      expect.stringContaining("not healthy"),
     );
   });
 });

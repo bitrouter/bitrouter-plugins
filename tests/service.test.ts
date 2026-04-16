@@ -45,7 +45,7 @@ vi.mock("../src/metrics.js", () => ({
 }));
 
 vi.mock("../src/auth.js", () => ({
-  ensureAuth: vi.fn(() => ({ apiToken: "mock-api-jwt", adminToken: "mock-admin-jwt" })),
+  ensureAuth: vi.fn(() => ({ apiToken: "mock-api-jwt" })),
 }));
 
 vi.mock("../src/discovery.js", () => ({
@@ -82,7 +82,6 @@ function createMockState(): BitrouterState {
     homeDir: "/tmp/bitrouter-test",
     metrics: null,
     apiToken: null,
-    adminToken: null,
     onboardingState: null,
   };
 }
@@ -140,7 +139,7 @@ describe("registerBitrouterService", () => {
         id: "bitrouter",
         start: expect.any(Function),
         stop: expect.any(Function),
-      })
+      }),
     );
   });
 
@@ -164,7 +163,7 @@ describe("registerBitrouterService", () => {
       expect.objectContaining({
         stdio: ["ignore", "pipe", "pipe"],
         detached: false,
-      })
+      }),
     );
     expect(state.process).toBe(mockChild);
   });
@@ -197,7 +196,7 @@ describe("registerBitrouterService", () => {
 
   it("throws when binary resolution fails", async () => {
     vi.mocked(resolveBinaryPath).mockRejectedValue(
-      new Error("BitRouter binary not found.")
+      new Error("BitRouter binary not found."),
     );
 
     const api = createMockApi();
@@ -206,6 +205,8 @@ describe("registerBitrouterService", () => {
     registerBitrouterService(api, {}, state, stateDirRef);
 
     const serviceOpts = vi.mocked(api.registerService).mock.calls[0][0];
-    await expect(serviceOpts.start(mockCtx)).rejects.toThrow("BitRouter binary not found.");
+    await expect(serviceOpts.start(mockCtx)).rejects.toThrow(
+      "BitRouter binary not found.",
+    );
   });
 });

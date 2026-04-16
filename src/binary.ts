@@ -1,11 +1,11 @@
 /**
- * Binary resolution — downloads and caches the BitRouter binary from GitHub
- * releases, or falls back to finding it on $PATH.
+ * Binary resolution — prefers a system-installed `bitrouter` on $PATH,
+ * then falls back to a cached/downloaded copy from GitHub releases.
  *
  * Resolution order:
- * 1. Cached binary in the plugin's data directory ({dataDir}/bin/bitrouter)
- * 2. Auto-download from GitHub releases (cached for future use)
- * 3. `bitrouter` on $PATH (for users who installed manually)
+ * 1. `bitrouter` on $PATH (for users who installed via cargo/brew/etc.)
+ * 2. Cached binary in the plugin's data directory ({dataDir}/bin/bitrouter)
+ * 3. Auto-download from GitHub releases (cached for future use)
  */
 
 import { execSync } from "node:child_process";
@@ -73,7 +73,8 @@ function getAssetName(): string {
 async function downloadBinary(binDir: string): Promise<string> {
   const asset = getAssetName();
   const url = `${GITHUB_DOWNLOAD_BASE}/${asset}`;
-  const binaryName = process.platform === "win32" ? "bitrouter.exe" : "bitrouter";
+  const binaryName =
+    process.platform === "win32" ? "bitrouter.exe" : "bitrouter";
   const binaryPath = join(binDir, binaryName);
   const archivePath = join(binDir, asset);
 
@@ -82,7 +83,9 @@ async function downloadBinary(binDir: string): Promise<string> {
   // Download the archive.
   const res = await fetch(url, { redirect: "follow" });
   if (!res.ok || !res.body) {
-    throw new Error(`Failed to download ${url}: ${res.status} ${res.statusText}`);
+    throw new Error(
+      `Failed to download ${url}: ${res.status} ${res.statusText}`,
+    );
   }
 
   const buffer = Buffer.from(await res.arrayBuffer());
@@ -108,11 +111,29 @@ async function downloadBinary(binDir: string): Promise<string> {
   if (!existsSync(binaryPath)) {
     throw new Error(
       `Download succeeded but binary not found at ${binaryPath}. ` +
-        `Archive may have an unexpected structure.`
+        `Archive may have an unexpected structure.`,
     );
   }
 
   return binaryPath;
+}
+
+/**
+ * Synchronously check if `bitrouter` is available on the system $PATH.
+ * Returns the resolved path or `null` if not found.
+ */
+export function findSystemBinary(): string | null {
+  try {
+    const cmd =
+      process.platform === "win32" ? "where bitrouter" : "which bitrouter";
+    const result = execSync(cmd, {
+      encoding: "utf-8",
+      timeout: 5_000,
+    }).trim();
+    return result ? result.split("\n")[0] : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -121,10 +142,17 @@ async function downloadBinary(binDir: string): Promise<string> {
  * @param dataDir - The plugin's persistent data directory (from api.getDataDir()).
  *                  Pass `null` to skip cached/download resolution and only check PATH.
  */
-export async function resolveBinaryPath(dataDir: string | null): Promise<string> {
-  const binaryName = process.platform === "win32" ? "bitrouter.exe" : "bitrouter";
+export async function resolveBinaryPath(
+  dataDir: string | null,
+): Promise<string> {
+  const binaryName =
+    process.platform === "win32" ? "bitrouter.exe" : "bitrouter";
 
-  // Try 1: Cached binary in data directory.
+  // Try 1: binary on PATH (preferred — user-managed install).
+  const systemBinary = findSystemBinary();
+  if (systemBinary) return systemBinary;
+
+  // Try 2: Cached binary in data directory.
   if (dataDir) {
     const binDir = join(dataDir, "bin");
     const cachedPath = join(binDir, binaryName);
@@ -142,24 +170,12 @@ export async function resolveBinaryPath(dataDir: string | null): Promise<string>
       }
     }
 
-    // Try 2: Download from GitHub releases.
+    // Try 3: Download from GitHub releases.
     try {
       return await downloadBinary(binDir);
     } catch {
-      // Download failed — fall through to PATH.
+      // Download failed — fall through.
     }
-  }
-
-  // Try 3: binary on PATH.
-  try {
-    const cmd = process.platform === "win32" ? "where bitrouter" : "which bitrouter";
-    const result = execSync(cmd, {
-      encoding: "utf-8",
-      timeout: 5_000,
-    }).trim();
-    if (result) return result.split("\n")[0];
-  } catch {
-    // Not on PATH — fall through.
   }
 
   throw new Error(
@@ -169,6 +185,6 @@ export async function resolveBinaryPath(dataDir: string | null): Promise<string>
       `  Download from: ${GITHUB_DOWNLOAD_BASE}\n` +
       "  Or: cargo install bitrouter\n" +
       "\n" +
-      "Then ensure `bitrouter` is on your $PATH."
+      "Then ensure `bitrouter` is on your $PATH.",
   );
 }

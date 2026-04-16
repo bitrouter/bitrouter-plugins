@@ -43,7 +43,6 @@ function createMockState(overrides?: Partial<BitrouterState>): BitrouterState {
     homeDir: "/tmp/bitrouter-test",
     metrics: null,
     apiToken: null,
-    adminToken: null,
     onboardingState: null,
     ...overrides,
   };
