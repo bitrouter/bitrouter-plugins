@@ -1,6 +1,6 @@
 {
-  "name": "@bitrouter/openclaw-plugin",
-  "version": "0.3.0",
+  "name": "@bitrouter.ai/openclaw-plugin",
+  "version": "0.1.0",
   "description": "BitRouter integration for OpenClaw — transparent LLM routing with failover, load balancing, and multi-provider support.",
   "type": "module",
   "main": "dist/index.js",
