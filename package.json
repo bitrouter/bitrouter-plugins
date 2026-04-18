@@ -33,15 +33,24 @@
     "node": ">=18"
   },
   "openclaw": {
-    "id": "bitrouter",
     "extensions": [
       "./dist/index.js"
     ],
     "providers": [
       "bitrouter"
     ],
-    "compat": ">=2026.3.24",
-    "build": "pnpm run build"
+    "install": {
+      "npmSpec": "@bitrouter.ai/openclaw-plugin",
+      "minHostVersion": ">=2026.3.24"
+    },
+    "compat": {
+      "pluginApi": ">=2026.3.24",
+      "minGatewayVersion": "2026.3.24"
+    },
+    "build": {
+      "openclawVersion": "2026.3.24",
+      "pluginSdkVersion": "2026.3.24"
+    }
   },
   "license": "MIT",
   "repository": {
